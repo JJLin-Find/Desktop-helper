@@ -12,7 +12,8 @@
     "start:dev": "bash scripts/start.sh --dev",
     "build": "npm run build -w @desktop-helper/core && npm run build -w @desktop-helper/platform-api && npm run build -w @desktop-helper/desktop",
     "dev": "npm run dev -w @desktop-helper/desktop",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "smoke": "node scripts/smoke.js --build"
   },
   "engines": {
     "node": ">=20"

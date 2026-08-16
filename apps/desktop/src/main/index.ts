@@ -587,9 +587,9 @@ function bootstrap(): void {
               })()`
             ).catch(() => '');
             void html;
-            // 直接向聊天窗发送测试消息渲染
+            // 直接向聊天窗发送测试消息渲染（标题已改为"XX自习室"，按宽度 360 识别）
             const chatWins = BrowserWindow.getAllWindows().find(
-              (w) => w.getTitle() === '信息查询助手'
+              (w) => w.getBounds().width === 360 && w.getBounds().height === 500
             );
             if (chatWins) {
               const out = await chatWins.webContents.executeJavaScript(
