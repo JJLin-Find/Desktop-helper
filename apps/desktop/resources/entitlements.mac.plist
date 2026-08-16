@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Electron/V8 在 hardened runtime 下需要 JIT 权限，缺了会崩溃 -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<!-- 部分 JIT/代码生成路径需要；如公证时被拒可尝试移除该项 -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!-- 注意：本应用【不启用 App Sandbox】（com.apple.security.app-sandbox 保持缺失） -->
+</dict>
+</plist>

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'PingFang SC', sans-serif; background: #f7f6f3; height: 100vh; display: flex; flex-direction: column; color: #333; }
+  #header { padding: 10px 14px; background: #fff; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  #header .title { font-size: 14px; font-weight: 600; flex: 1; }
+  #header .sub { font-size: 11px; color: #999; font-weight: 400; }
+
+  /* ---- 番茄钟 ---- */
+  #pomodoro-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #pomodoro { background: #fff; padding: 16px 14px; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+  #pomodoro .pomo-status-row { display: flex; align-items: baseline; gap: 10px; }
+  #pomodoro .pomo-status { font-size: 15px; font-weight: 600; }
+  #pomodoro .pomo-sessions { font-size: 12px; color: #999; }
+  #pomodoro .pomo-countdown { font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums; color: #e2505c; text-align: center; letter-spacing: 1px; }
+  #pomodoro .pomo-countdown.idle { color: #bbb; font-weight: 400; }
+  #pomodoro .pomo-phase-hint { font-size: 12px; color: #aaa; text-align: center; min-height: 16px; }
+  #pomodoro .pomo-controls { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+  #pomodoro .pomo-controls label { font-size: 12px; color: #888; }
+  #pomodoro input[type="number"] { width: 60px; padding: 5px 6px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; text-align: center; outline: none; }
+  #pomodoro input[type="number"]:focus { border-color: #e8a04c; }
+  button { border: none; border-radius: 10px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+  #btn-focus { background: #e2505c; color: #fff; }
+  #btn-focus:hover { background: #cf414d; }
+  #btn-break { background: #4a9e6f; color: #fff; }
+  #btn-break:hover { background: #3e8a5f; }
+  #btn-stop { background: #f0ece4; color: #666; }
+  #btn-stop:hover { background: #e6e0d4; }
+  #footer { padding: 8px 14px 12px; text-align: center; font-size: 11px; color: #bbb; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(40,40,40,0.92); color: #fff; font-size: 12px; padding: 8px 16px; border-radius: 18px; opacity: 0; pointer-events: none; transition: opacity 0.25s; white-space: nowrap; z-index: 10; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div id="header">
+    <span class="title">🍅 番茄钟 <span class="sub">右键桌宠可再次打开</span></span>
+  </div>
+
+  <section id="pomodoro-area">
+    <div id="pomodoro">
+      <div class="pomo-status-row">
+        <span id="pomo-status" class="pomo-status">🍅 空闲</span>
+        <span id="pomo-sessions" class="pomo-sessions">今日专注 0 分钟</span>
+      </div>
+      <div id="pomo-countdown" class="pomo-countdown idle">--:--</div>
+      <div id="pomo-phase-hint" class="pomo-phase-hint">点击「开始专注」进入专注，完成后自动进入休息</div>
+      <div class="pomo-controls">
+        <label>专注</label><input id="pomo-focus" type="number" value="25" min="1" step="1" title="专注时长（分钟）" />
+        <label>休息</label><input id="pomo-break" type="number" value="5" min="1" step="1" title="休息时长（分钟）" />
+        <button id="btn-focus">🍅 开始专注</button>
+        <button id="btn-break">☕ 开始休息</button>
+        <button id="btn-stop">⏹ 停止</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="footer">专注 → 休息自动交替，直到手动停止</div>
+
+  <div id="toast"></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const countdownEl = $('pomo-countdown');
+  const statusEl = $('pomo-status');
+  const sessionsEl = $('pomo-sessions');
+  const phaseHintEl = $('pomo-phase-hint');
+  const toastEl = $('toast');
+
+  let pomo = { phase: 'idle', endAt: null, remainingMs: 0, focusMinutes: 25, breakMinutes: 5 };
+
+  // ---------- 工具 ----------
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 1600);
+  }
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmtClock(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return pad(Math.floor(s / 60)) + ':' + pad(s % 60);
+  }
+
+  // ---------- 状态渲染 ----------
+  function renderPomo() {
+    statusEl.textContent = pomo.phase === 'idle'
+      ? '🍅 空闲'
+      : pomo.phase === 'focus' ? '🍅 专注中' : '☕ 休息中';
+    countdownEl.classList.toggle('idle', pomo.phase === 'idle' || pomo.remainingMs <= 0);
+    countdownEl.textContent = (pomo.phase === 'idle') ? '--:--' : fmtClock(pomo.remainingMs);
+    phaseHintEl.textContent = pomo.phase === 'focus'
+      ? '保持专注，结束后自动进入休息 ☕'
+      : pomo.phase === 'break' ? '放松一下，结束后自动开始下一轮专注 🍅' : '点击「开始专注」进入专注，完成后自动进入休息';
+  }
+
+  async function refreshPomo() {
+    const [st, sessions] = await Promise.all([
+      window.pet.pomodoroStatus(),
+      window.pet.pomodoroSessionsToday()
+    ]);
+    pomo = st;
+    sessionsEl.textContent = '今日专注 ' + (Math.round(sessions * 10) / 10) + ' 分钟';
+    renderPomo();
+  }
+
+  // 本地 1s 倒计时（endAt 为绝对时间戳，杜绝漂移；到点后等主进程阶段切换广播刷新）
+  setInterval(() => {
+    if (pomo.phase !== 'idle' && pomo.endAt) {
+      pomo.remainingMs = Math.max(0, pomo.endAt - Date.now());
+      renderPomo();
+      if (pomo.remainingMs <= 0) void refreshPomo();
+    }
+  }, 1000);
+
+  $('btn-focus').addEventListener('click', async () => {
+    const m = parseFloat($('pomo-focus').value) || 25;
+    await window.pet.pomodoroStart('focus', m);
+    await refreshPomo();
+  });
+  $('btn-break').addEventListener('click', async () => {
+    const m = parseFloat($('pomo-break').value) || 5;
+    await window.pet.pomodoroStart('break', m);
+    await refreshPomo();
+  });
+  $('btn-stop').addEventListener('click', async () => {
+    await window.pet.pomodoroStop();
+    await refreshPomo();
+    toast('番茄钟已停止');
+  });
+
+  // ---------- 订阅主进程广播（阶段切换 → 自动刷新） ----------
+  window.pet.onPomodoroChanged(() => void refreshPomo());
+
+  // ---------- 初始化 ----------
+  void refreshPomo();
+</script>
+</body>
+</html>

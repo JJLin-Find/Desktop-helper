@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'PingFang SC', sans-serif; background: #f7f6f3; height: 100vh; display: flex; flex-direction: column; color: #333; }
+  #header { padding: 10px 14px; background: #fff; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  #header .title { font-size: 14px; font-weight: 600; flex: 1; }
+  #header .sub { font-size: 11px; color: #999; font-weight: 400; }
+  #filters { padding: 6px 14px; background: #fff; border-bottom: 1px solid #eee; display: flex; gap: 8px; align-items: center; }
+  #filters select { padding: 4px 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 12px; color: #555; background: #fff; outline: none; cursor: pointer; }
+  #filters select:focus { border-color: #e8a04c; }
+  #filters .hint { font-size: 11px; color: #aaa; margin-left: auto; }
+  #search-row { padding: 8px 14px; background: #fff; border-bottom: 1px solid #eee; }
+  #search { width: 100%; padding: 7px 12px; border: 1px solid #ddd; border-radius: 16px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #e8a04c; }
+  #status { padding: 6px 14px; font-size: 12px; color: #999; background: #fbfaf7; border-bottom: 1px solid #f0eee9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .item { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 8px 10px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
+  .item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #e8a04c; }
+  .item .top { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .item .icon { font-size: 14px; flex-shrink: 0; }
+  .item .name { font-size: 13px; font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .meta { font-size: 11px; color: #aaa; flex: 1; text-align: right; white-space: nowrap; flex-shrink: 0; }
+  .item .path { font-size: 11px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #empty { text-align: center; color: #aaa; font-size: 13px; padding: 40px 0; }
+</style>
+</head>
+<body>
+  <div id="header">
+    <span class="title">🔍 文件搜索 <span class="sub">点击结果在 Finder 中显示</span></span>
+  </div>
+  <div id="filters">
+    <select id="kind" title="按类型过滤（kMDItemContentTypeTree）">
+      <option value="">全部类型</option>
+      <option value="public.image">🖼 图片</option>
+      <option value="public.pdf">📕 PDF</option>
+      <option value="public.document">📄 文档</option>
+      <option value="public.audio">🎵 音频</option>
+      <option value="public.movie">🎬 视频</option>
+      <option value="public.archive">📦 压缩包</option>
+      <option value="public.source-code">💻 代码</option>
+    </select>
+    <select id="time" title="按修改时间过滤">
+      <option value="0">全部时间</option>
+      <option value="1440">今天</option>
+      <option value="10080">近 7 天</option>
+      <option value="43200">近 30 天</option>
+    </select>
+    <span class="hint">基于 Spotlight 索引</span>
+  </div>
+  <div id="search-row"><input id="search" placeholder="输入文件名关键词搜索…" autocomplete="off" /></div>
+  <div id="status">输入关键词开始搜索（支持名称 / 类型 / 时间组合）</div>
+  <div id="list"></div>
+  <div id="empty">暂无结果</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const listEl = $('list');
+  const emptyEl = $('empty');
+  const statusEl = $('status');
+  const searchInput = $('search');
+  const kindSelect = $('kind');
+  const timeSelect = $('time');
+  let debounce = null;
+  let seq = 0; // 请求序号：丢弃过期响应，防乱序覆盖
+
+  // ---------- 工具 ----------
+  function fmtSize(bytes) {
+    if (!bytes || bytes <= 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let v = bytes;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + units[i];
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return '';
+    const diff = Date.now() - ts;
+    if (diff < 60e3) return '刚刚';
+    if (diff < 3600e3) return Math.floor(diff / 60e3) + ' 分钟前';
+    if (diff < 86400e3) return Math.floor(diff / 3600e3) + ' 小时前';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  /** 按扩展名给 emoji 兜底图标（MVP 可选：后续可接主进程 app.getFileIcon 系统图标） */
+  function iconFor(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    if (/^(png|jpe?g|gif|webp|heic|tiff|bmp|svg)$/.test(ext)) return '🖼';
+    if (ext === 'pdf') return '📕';
+    if (/^(docx?|pages|txt|md|rtf|odt)$/.test(ext)) return '📄';
+    if (/^(mp3|wav|flac|aac|m4a|ogg)$/.test(ext)) return '🎵';
+    if (/^(mp4|mov|mkv|avi|webm)$/.test(ext)) return '🎬';
+    if (/^(zip|rar|7z|tar|gz|bz2|dmg)$/.test(ext)) return '📦';
+    if (/^(js|ts|tsx|jsx|py|java|c|cpp|h|go|rs|swift|json|ya?ml|sh|html|css)$/.test(ext)) return '💻';
+    return '📁';
+  }
+
+  // ---------- 渲染 ----------
+  function render(results) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = results.length ? 'none' : 'block';
+    for (const item of results) {
+      const row = document.createElement('div');
+      row.className = 'item';
+
+      const top = document.createElement('div');
+      top.className = 'top';
+
+      const icon = document.createElement('span');
+      icon.className = 'icon';
+      icon.textContent = iconFor(item.name);
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = item.name;
+      name.title = item.name;
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = [fmtSize(item.size), fmtTime(item.mtime)].filter(Boolean).join(' · ');
+
+      top.append(icon, name, meta);
+
+      const path = document.createElement('div');
+      path.className = 'path';
+      path.textContent = item.path;
+      path.title = item.path;
+
+      row.append(top, path);
+      // 点击结果 → 主进程 shell.showItemInFolder 在 Finder 中显示
+      row.addEventListener('click', () => {
+        void window.pet.fileSearchReveal(item.path);
+      });
+
+      listEl.appendChild(row);
+    }
+  }
+
+  // ---------- 搜索（渲染层 300ms 去抖；主进程不做去抖） ----------
+  async function doSearch() {
+    const kw = searchInput.value.trim();
+    const kind = kindSelect.value;
+    const within = Number(timeSelect.value) || 0;
+    const mySeq = ++seq;
+    if (!kw && !kind && !within) {
+      emptyEl.style.display = 'none';
+      render([]);
+      statusEl.textContent = '输入关键词开始搜索（支持名称 / 类型 / 时间组合）';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    statusEl.textContent = '🔍 搜索中…';
+    try {
+      const res = await window.pet.fileSearch(kw, {
+        kinds: kind ? [kind] : undefined,
+        withinMinutes: within || undefined
+      });
+      if (mySeq !== seq) return; // 已有更新的请求，丢弃本次
+      if (!res.ok) {
+        render([]);
+        statusEl.textContent = '⚠️ ' + (res.error || '搜索失败');
+        return;
+      }
+      render(res.results);
+      statusEl.textContent = res.results.length
+        ? '✅ ' + res.results.length + ' 个结果（点击在 Finder 中显示）'
+        : '无匹配结果，换个关键词试试';
+    } catch (err) {
+      if (mySeq !== seq) return;
+      render([]);
+      statusEl.textContent = '⚠️ 搜索失败: ' + (err && err.message ? err.message : String(err));
+    }
+  }
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => void doSearch(), 300);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      clearTimeout(debounce);
+      void doSearch();
+    } else if (e.key === 'Escape') {
+      searchInput.value = '';
+      clearTimeout(debounce);
+      void doSearch();
+    }
+  });
+  kindSelect.addEventListener('change', () => {
+    clearTimeout(debounce);
+    void doSearch();
+  });
+  timeSelect.addEventListener('change', () => {
+    clearTimeout(debounce);
+    void doSearch();
+  });
+
+  searchInput.focus();
+</script>
+</body>
+</html>

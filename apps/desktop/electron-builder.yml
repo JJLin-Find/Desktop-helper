@@ -1,0 +1,36 @@
+# electron-builder 打包配置（macOS 优先，预留 Windows）
+# 文档：https://www.electron.build/configuration
+appId: com.desktophelper.pet
+productName: 桌面宠物助手
+# 公证钩子（见 scripts/notarize.js；未设置 APPLE_* 环境变量时自动跳过）
+afterSign: ../../scripts/notarize.js
+directories:
+  output: release
+  buildResources: resources
+# 打包进 app.asar 的文件（node_modules 生产依赖由 electron-builder 自动附加）
+files:
+  - out/**
+  - resources/**          # 含 live2d 模型、chat-window.html 等
+  - package.json
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.utilities
+  target: [dmg, zip]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    LSUIElement: true     # 隐藏 Dock 图标（桌宠红线：菜单栏常驻形态）
+    NSAppSleepDisabled: true
+    NSHighResolutionCapable: true
+dmg:
+  title: 桌面宠物助手
+  sign: false
+win:
+  # Windows 图标：electron-builder 自动将 ≥256x256 的 PNG 转为多尺寸 ICO（安装器/快捷方式/任务栏用）
+  icon: resources/icon.png
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

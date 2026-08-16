@@ -1,0 +1,13 @@
+{
+  "name": "@desktop-helper/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "平台无关的纯 TS 核心：调度器、事件总线、桌宠状态机、领域模型（零平台依赖）",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

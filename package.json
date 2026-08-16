@@ -1,0 +1,23 @@
+{
+  "name": "desktop-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "桌面宠物形态的 AI 桌面助手（macOS 优先，预留 Windows）",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "start": "bash scripts/start.sh",
+    "start:dev": "bash scripts/start.sh --dev",
+    "build": "npm run build -w @desktop-helper/core && npm run build -w @desktop-helper/platform-api && npm run build -w @desktop-helper/desktop",
+    "dev": "npm run dev -w @desktop-helper/desktop",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

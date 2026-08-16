@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'PingFang SC', sans-serif; background: #f7f6f3; height: 100vh; display: flex; flex-direction: column; color: #333; }
+  #header { padding: 10px 14px; background: #fff; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  #header .title { font-size: 14px; font-weight: 600; flex: 1; }
+  #header .sub { font-size: 11px; color: #999; font-weight: 400; }
+
+  /* ---- 日程 ---- */
+  #calendar { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #form { background: #fff; border-bottom: 1px solid #eee; padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #form .full { grid-column: 1 / -1; }
+  #form input[type="text"], #form input[type="datetime-local"], #form select, #form textarea {
+    width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 12px; outline: none; font-family: inherit;
+  }
+  #form input:focus, #form select:focus, #form textarea:focus { border-color: #e8a04c; }
+  #form textarea { resize: vertical; min-height: 28px; }
+  #btn-add { background: #e8a04c; color: #fff; grid-column: 1 / -1; padding: 7px; font-size: 13px; }
+  #btn-add:hover { background: #d9903a; }
+  button { border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  #list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .ev-item { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 8px 10px; position: relative; }
+  .ev-item.reminded { background: #f6f3ec; border-color: #e5ded0; }
+  .ev-item .top { display: flex; align-items: center; gap: 6px; }
+  .ev-item .ev-title { font-size: 13px; font-weight: 600; flex: 1; word-break: break-word; }
+  .ev-item .ev-time { font-size: 12px; color: #e2505c; font-variant-numeric: tabular-nums; }
+  .ev-item .badges { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+  .badge { font-size: 10px; padding: 1px 7px; border-radius: 9px; background: #f0ece4; color: #8a8070; }
+  .badge.reminded { background: #e8e2d6; color: #a09078; }
+  .badge.repeat { background: #eef3ec; color: #4a7d5c; }
+  .ev-item .ev-notes { font-size: 11px; color: #999; margin-top: 4px; word-break: break-word; }
+  .ev-item .btn-del { position: absolute; top: 6px; right: 8px; border: none; background: none; font-size: 13px; cursor: pointer; opacity: 0.45; padding: 2px 4px; border-radius: 5px; }
+  .ev-item .btn-del:hover { opacity: 1; background: #f0ece4; }
+  #ev-empty { text-align: center; color: #aaa; font-size: 13px; padding: 30px 0; }
+  #ev-clear-row { padding: 6px 14px 10px; display: flex; justify-content: flex-end; }
+  #btn-clear { background: none; color: #b0a894; font-size: 11px; padding: 4px 8px; }
+  #btn-clear:hover { color: #e2505c; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(40,40,40,0.92); color: #fff; font-size: 12px; padding: 8px 16px; border-radius: 18px; opacity: 0; pointer-events: none; transition: opacity 0.25s; white-space: nowrap; z-index: 10; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div id="header">
+    <span class="title">📅 日程管理 <span class="sub">右键桌宠可再次打开</span></span>
+  </div>
+
+  <!-- 日程 -->
+  <section id="calendar">
+    <form id="form" autocomplete="off">
+      <input class="full" id="ev-title" type="text" placeholder="事件标题（必填）" />
+      <input id="ev-start" type="datetime-local" required />
+      <select id="ev-remind" title="提醒提前量">
+        <option value="0">不提醒</option>
+        <option value="300000" selected>提前 5 分钟</option>
+        <option value="600000">提前 10 分钟</option>
+        <option value="1800000">提前 30 分钟</option>
+        <option value="3600000">提前 1 小时</option>
+        <option value="86400000">提前 1 天</option>
+      </select>
+      <select id="ev-repeat" title="重复规则">
+        <option value="none">不重复</option>
+        <option value="daily">每天</option>
+        <option value="weekly">每周</option>
+        <option value="monthly">每月</option>
+      </select>
+      <textarea class="full" id="ev-notes" placeholder="备注（可选）" rows="1"></textarea>
+      <button id="btn-add" type="submit">＋ 添加事件</button>
+    </form>
+    <div id="list"></div>
+    <div id="ev-empty">暂无日程，添加一个吧</div>
+    <div id="ev-clear-row"><button id="btn-clear">清空全部日程</button></div>
+  </section>
+
+  <div id="toast"></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const listEl = $('list');
+  const emptyEl = $('ev-empty');
+  const toastEl = $('toast');
+
+  // ---------- 工具 ----------
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 1600);
+  }
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmtDateTime(ts) {
+    const d = new Date(ts);
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  /** datetime-local 输入框默认值：当前时间 +1 小时（取整分钟） */
+  function fmtInputDate(d) {
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  const REMIND_LABEL = { '0': '不提醒', '300000': '提前 5 分钟', '600000': '提前 10 分钟', '1800000': '提前 30 分钟', '3600000': '提前 1 小时', '86400000': '提前 1 天' };
+  const REPEAT_LABEL = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月' };
+
+  // ---------- 日程 ----------
+  function renderEvents(events) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = events.length ? 'none' : 'block';
+    for (const ev of events) {
+      const row = document.createElement('div');
+      row.className = 'ev-item' + (ev.reminded ? ' reminded' : '');
+
+      const top = document.createElement('div');
+      top.className = 'top';
+
+      const title = document.createElement('span');
+      title.className = 'ev-title';
+      title.textContent = (ev.allDay ? '📆 ' : '📅 ') + ev.title;
+      top.appendChild(title);
+
+      const time = document.createElement('span');
+      time.className = 'ev-time';
+      const t = ev.nextStartAt || ev.startAt;
+      time.textContent = fmtDateTime(t);
+      top.appendChild(time);
+
+      const del = document.createElement('button');
+      del.className = 'btn-del';
+      del.textContent = '🗑';
+      del.title = '删除';
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await window.pet.calendarRemove(ev.id);
+        toast('已删除');
+        await refreshEvents();
+      });
+      top.appendChild(del);
+
+      row.appendChild(top);
+
+      const badges = document.createElement('div');
+      badges.className = 'badges';
+      const repeatBadge = document.createElement('span');
+      repeatBadge.className = 'badge repeat';
+      repeatBadge.textContent = REPEAT_LABEL[ev.repeatRule || 'none'];
+      badges.appendChild(repeatBadge);
+      const remindBadge = document.createElement('span');
+      remindBadge.className = 'badge';
+      remindBadge.textContent = REMIND_LABEL[String(ev.remindBeforeMs || 0)] || '提前提醒';
+      badges.appendChild(remindBadge);
+      if (ev.reminded) {
+        const done = document.createElement('span');
+        done.className = 'badge reminded';
+        done.textContent = '已提醒';
+        badges.appendChild(done);
+      }
+      row.appendChild(badges);
+
+      if (ev.notes) {
+        const notes = document.createElement('div');
+        notes.className = 'ev-notes';
+        notes.textContent = '📝 ' + ev.notes;
+        row.appendChild(notes);
+      }
+
+      listEl.appendChild(row);
+    }
+  }
+
+  async function refreshEvents() {
+    const events = await window.pet.calendarList();
+    renderEvents(events);
+  }
+
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = $('ev-title').value.trim();
+    const startVal = $('ev-start').value;
+    if (!title) { toast('⚠️ 标题不能为空'); return; }
+    if (!startVal) { toast('⚠️ 请选择开始时间'); return; }
+    const startAt = new Date(startVal).getTime();
+    if (!Number.isFinite(startAt)) { toast('⚠️ 开始时间无效'); return; }
+    const res = await window.pet.calendarAdd({
+      title,
+      startAt,
+      remindBeforeMs: Number($('ev-remind').value) || 0,
+      repeatRule: $('ev-repeat').value || 'none',
+      notes: $('ev-notes').value.trim() || undefined
+    });
+    if (res && res.error) {
+      toast('⚠️ ' + res.error);
+      return;
+    }
+    toast('已添加日程 📅');
+    $('ev-title').value = '';
+    $('ev-notes').value = '';
+    // 默认时间顺延 1 小时
+    $('ev-start').value = fmtInputDate(new Date(Date.now() + 3600e3));
+    await refreshEvents();
+  });
+
+  $('btn-clear').addEventListener('click', async () => {
+    if (!confirm('确定清空全部日程吗？')) return;
+    await window.pet.calendarClear();
+    toast('已清空全部日程');
+    await refreshEvents();
+  });
+
+  // ---------- 订阅主进程广播（提醒触发 → 自动刷新） ----------
+  window.pet.onCalendarChanged(() => void refreshEvents());
+
+  // ---------- 初始化 ----------
+  (async () => {
+    $('ev-start').value = fmtInputDate(new Date(Date.now() + 3600e3));
+    await refreshEvents();
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "@desktop-helper/platform-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "平台抽象接口与共享类型：ITray/IAutoLaunch/INotifier/IWindowManager/IClipboardWatcher 等",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

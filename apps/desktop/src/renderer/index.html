@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob:"
+    />
+    <title>桌宠助手</title>
+    <link rel="stylesheet" href="./src/style.css" />
+    <!-- Live2D Cubism Core（官方 Redistributable，定义 window.Live2DCubismCore） -->
+    <script src="live2d/live2dcubismcore.min.js"></script>
+  </head>
+  <body>
+    <canvas id="pet-canvas"></canvas>
+    <canvas id="overlay-canvas"></canvas>
+    <input id="chat-input" type="text" placeholder="说点什么…（回车发送 / Esc 取消）" autocomplete="off" />
+    <div id="context-menu"></div>
+    <div id="debug">
+      <div id="state-line">state: -</div>
+      <div id="meta-line">-</div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

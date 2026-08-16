@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# Electron
+apps/desktop/release/
+apps/desktop/.vite/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.p12
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Test
+coverage/
+
+# Local data
+userData/
+*.db
+*.sqlite
+
+# 一键启动脚本的本地缓存（规避系统 npm/Electron 缓存权限问题）
+.npm-cache/
+.electron-cache/
+.electron-userdata/
+# electron-builder / @electron/get 下载缓存（本机沙盒环境绕过 ~/Library/Caches 用）
+.cache/
