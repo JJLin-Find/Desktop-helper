@@ -70,6 +70,12 @@ export abstract class ElectronPlatform implements IPlatform {
         this.trayImpl.setToolTip(options.tooltip ?? '桌面宠物助手');
       },
       setTooltip: (t: string) => this.trayImpl?.setToolTip(t),
+      setIcon: (dataUrl: string) => {
+        const img = nativeImage.createFromDataURL(dataUrl);
+        if (img.isEmpty()) return;
+        img.setTemplateImage(true);
+        this.trayImpl?.setImage(img);
+      },
       updateMenu: (items: MenuItem[]) => {
         if (!this.trayImpl) return;
         this.trayImpl.setContextMenu(this.buildMenu(items));
@@ -162,9 +168,8 @@ export abstract class ElectronPlatform implements IPlatform {
   }
 
   /**
-   * 托盘动画：循环切换 tray-anim/frame-0..N.png（呼吸灯帧，20 帧余弦 alpha 渐变），
-   * 实现动态托盘图标。帧 < 2 时不启动。
-   * 默认 200ms/帧 × 20 帧 = 4s 完整明暗周期（呼吸灯频率）。
+   * 托盘动画（目录版）：循环切换 tray-anim/frame-0..N.png（呼吸灯帧），
+   * 实现动态托盘图标。帧 < 2 时不启动。默认 200ms/帧 × 20 帧 = 4s 周期。
    */
   startTrayAnimation(framesDir: string, intervalMs = 200): void {
     if (!this.trayImpl || this.trayAnimTimer) return;
@@ -174,6 +179,25 @@ export abstract class ElectronPlatform implements IPlatform {
       if (!existsSync(p)) break;
       frames.push(this.loadTrayImage(p, true)); // 动画帧同为模板图
     }
+    this.startAnimationFromImages(frames, intervalMs);
+  }
+
+  /** 托盘动画（运行时渲染版）：PNG dataURL 数组 → 呼吸灯循环（系统 emoji 托盘图标用） */
+  startTrayAnimationFromDataUrls(dataUrls: string[], intervalMs = 200): void {
+    if (!this.trayImpl || this.trayAnimTimer) return;
+    const frames: Electron.NativeImage[] = [];
+    for (const d of dataUrls) {
+      const img = nativeImage.createFromDataURL(d);
+      if (img.isEmpty()) continue;
+      img.setTemplateImage(true);
+      frames.push(img);
+    }
+    this.startAnimationFromImages(frames, intervalMs);
+  }
+
+  /** 动画启动共用逻辑（帧 < 2 不启动） */
+  protected startAnimationFromImages(frames: Electron.NativeImage[], intervalMs: number): void {
+    if (!this.trayImpl || this.trayAnimTimer) return;
     if (frames.length < 2) return;
     let idx = 0;
     this.trayAnimTimer = setInterval(() => {

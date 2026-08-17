@@ -378,9 +378,30 @@ function bootstrap(): void {
         ? Win32Platform.trayIconPath()
         : undefined;
   platform.tray.create({ icon, iconAsTemplate: true, tooltip: '桌面宠物助手' });
-  // 托盘动态动画（呼吸）：resources/tray-anim/ 帧资源存在时启用（generate-tray-icon.js --frames-dir 生成）
+  // 托盘动态动画（呼吸）：resources/tray-anim/ 帧资源存在时启用（generate-tray-icon.js --anim 生成）
   const trayAnimDir = join(app.getAppPath(), 'resources', 'tray-anim');
   if (existsSync(trayAnimDir)) platform.startTrayAnimation?.(trayAnimDir);
+  // 🐾 托盘图标（用户要求"直接使用🐾"）：用系统 emoji 字体在渲染层渲染 🐾 → 黑色模板
+  // 16x16 呼吸帧 → 替换静态图标并启动动画。形状与用户看到的 🐾 完全一致（运行时渲染）。
+  // 静态 tray.png / tray-anim 作为 fallback（渲染慢/失败时已有图标）。
+  petWindow!.window!.webContents.once('did-finish-load', () => {
+    setTimeout(async () => {
+      try {
+        const frames = (await petWindow!.window!.webContents.executeJavaScript(
+          `window.__renderEmojiFrames ? window.__renderEmojiFrames('🐾') : null`
+        )) as (string | null)[] | null;
+        const urls = frames?.filter((d): d is string => !!d) ?? [];
+        const first = urls[0];
+        if (urls.length > 1 && platform && first) {
+          platform.tray.setIcon?.(first);
+          platform.startTrayAnimationFromDataUrls?.(urls, 200);
+          console.log(`[main] 🐾 emoji 托盘图标已生效（${urls.length} 帧呼吸）`);
+        }
+      } catch (err) {
+        console.warn('[main] 🐾 emoji 托盘图标渲染失败，使用静态 fallback:', err);
+      }
+    }, 1200);
+  });
   platform.tray.updateMenu([
     { id: 'show', label: '显示 / 隐藏桌宠', click: () => {
         if (petWindow?.isVisible()) petWindow.hide();
@@ -575,6 +596,35 @@ function bootstrap(): void {
           app.quit();
         }
       }, 500);
+    });
+    return;
+  }
+  // 托盘 emoji 图标生成（PET_EMOJI_ANIM=<dir>）：调用渲染层钩子 __renderEmojiFrames
+  // 渲染系统 🐾 emoji → 黑色模板 16x16 呼吸帧 → 写盘（供检查/静态资产；运行时已直接使用）
+  if (process.env['PET_EMOJI_ANIM']) {
+    const animDir = process.env['PET_EMOJI_ANIM'];
+    petWindow!.window!.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          const frames = (await petWindow!.window!.webContents.executeJavaScript(
+            `window.__renderEmojiFrames ? window.__renderEmojiFrames('🐾') : null`
+          )) as (string | null)[] | null;
+          const { mkdirSync } = await import('node:fs');
+          mkdirSync(animDir!, { recursive: true });
+          const { nativeImage } = await import('electron');
+          let saved = 0;
+          frames?.forEach((dataUrl, i) => {
+            if (!dataUrl) return;
+            writeFileSync(`${animDir}/frame-${i}.png`, nativeImage.createFromDataURL(dataUrl).toPNG());
+            saved++;
+          });
+          console.log(`[paw-anim] 保存 ${saved} 帧 → ${animDir}`);
+        } catch (err) {
+          console.error('[paw-anim] 失败:', err);
+        } finally {
+          app.quit();
+        }
+      }, 1200);
     });
     return;
   }
