@@ -94,8 +94,8 @@ docs/                    # 全部调研报告 + 决策文档
 
 ### 托盘图标（✅ 已完成：彩色 pichu 头像 + 呼吸动画）
 - 原 trayTemplate.png 是 generate-icons.js 画的**黑色实心圆**（macOS Template=纯黑+alpha），菜单栏显示为黑点 → 弃用
-- `scripts/generate-tray-icon.js`：解码 `resources/icon.png`（512 彩色 pichu）→ 居中裁剪内容区（原图 pichu 偏左下，contentBox 校正，side 会 clamp 到 min(w,h) 防越界）→ 双线性缩放 → **`resources/tray.png`(22×22 @1x) + `tray@2x.png`(44×44 @2x)**
-- **尺寸红线**：macOS 菜单栏仅 22pt 高，单张 44px PNG 会被系统当 44pt 渲染而溢出 → 必须 @1x 22 + @2x 44 组合（base.ts `loadTrayImage` 用 `addRepresentation` 合并，Retina 清晰）
+- `scripts/generate-tray-icon.js`：解码 `resources/icon.png`（512 彩色 pichu）→ 居中裁剪内容区（原图 pichu 偏左下，contentBox 校正，side 会 clamp 到 min(w,h) 防越界）→ 双线性缩放 → **`resources/tray.png`(16×16 @1x) + `tray@2x.png`(32×32 @2x)**
+- **尺寸红线**：macOS 菜单栏高 22pt，图标用系统标准 **16pt**（22pt 顶满菜单栏视觉过大；单张 44px PNG 会被系统当 44pt 渲染直接溢出）→ 必须 @1x 16 + @2x 32 组合（base.ts `loadTrayImage` 用 `addRepresentation` 合并，Retina 清晰）
 - **动态托盘**：渲染层 `__captureFrames(count, ms)` 图标模式连拍（Live2D 呼吸动画相位差）→ `PET_TRAY_ANIM=<dir>` 生成帧 PNG → `generate-tray-icon.js --frames-dir=<dir>` 统一第一帧 contentBox 缩放 → `resources/tray-anim/frame-0..3.png(+@2x)`（帧间 16% 像素差异，呼吸可见）
 - 运行时：`base.ts startTrayAnimation(framesDir)` setInterval 300ms 循环 `setImage`（IPlatform 可选方法）；index.ts 托盘创建后探测 tray-anim/ 存在即启动
 - 彩色非 template：`darwin.ts`/`win32.ts` trayIconPath 指向 tray.png；`iconAsTemplate: false`；浅/深色菜单栏均可见

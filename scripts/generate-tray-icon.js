@@ -27,8 +27,8 @@ const { join } = require('node:path')
 const ROOT = join(__dirname, '..')
 const RES = join(ROOT, 'apps', 'desktop', 'resources')
 const ICON_PNG = join(RES, 'icon.png')
-const SIZE1X = 22 // 菜单栏 22pt（@1x 基准；44px 单图会被当 44pt 渲染而溢出）
-const SIZE2X = 44 // @2x Retina 清晰
+const SIZE1X = 16 // macOS 菜单栏图标标准尺寸（16pt；22pt 会顶满 22pt 高的任务栏，视觉过大）
+const SIZE2X = 32 // @2x Retina 清晰
 
 // ---------- PNG 解码（RGBA） ----------
 function decodePng(buf) {
@@ -98,7 +98,7 @@ function contentBox(w, h, rgba) {
   const cw = maxX - minX + 1
   const ch = maxY - minY + 1
   let side = Math.max(cw, ch)
-  side = Math.round(side * 1.12) // 12% padding
+  side = Math.round(side * 1.16) // 16% padding：pichu 完整可见且不贴图标边缘
   side = Math.min(side, w, h) // 绝不超帧尺寸（图标模式下模型可能占满帧，padding 自动收缩）
   if (side < 1) side = 1
   const cx = minX + cw / 2

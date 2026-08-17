@@ -43,8 +43,9 @@ export abstract class ElectronPlatform implements IPlatform {
   // ---------- Tray ----------
   /**
    * 加载托盘图标：@1x 基准图 + 自动探测同目录 `@2x` 变体组合成多分辨率 NativeImage。
-   * 关键：macOS 菜单栏高 22pt，若只传单张 44px PNG 会被系统当作 44pt 渲染（溢出任务栏）。
-   * 提供 22x22(@1x) + 44x44(@2x) 才能正确显示为 22pt 且 Retina 清晰。
+   * 关键：macOS 菜单栏高 22pt，图标应用系统标准 16pt（@1x 16px + @2x 32px，
+   * 由 generate-tray-icon.js 生成）——22pt 会顶满菜单栏视觉过大，44px 单图则会被
+   * 系统当作 44pt 渲染直接溢出。addRepresentation 合并后 Retina 下显示 16pt 且清晰。
    */
   protected loadTrayImage(basePath: string): Electron.NativeImage {
     const img = nativeImage.createEmpty();
