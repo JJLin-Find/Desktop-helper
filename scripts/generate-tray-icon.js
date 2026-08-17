@@ -31,8 +31,8 @@ const SEGMENTS = [
   [0.30, 0.44, 0.56, 0.44], // 腰部水平折
   [0.56, 0.44, 0.38, 0.98]  // 腰部 → 底尖（斜）
 ]
-/** 半宽（归一化）：约 1.44px @16px → 条径 2.9px（明显粗于细闪电，又不失形状） */
-const HALF_WIDTH = 0.09
+/** 半宽（归一化）：约 0.64px @16px → 条径 ~1.7px 视觉黑（用户要求的原始粗细，黑色占位 ~16%） */
+const HALF_WIDTH = 0.04
 
 /** 动画帧数（呼吸灯：20 帧 × 200ms = 4s 一个完整明暗周期） */
 const ANIM_FRAMES = 20
@@ -57,7 +57,7 @@ function segDist(px, py, s) {
  */
 function drawBolt(size, alphaMul = 1) {
   const buf = Buffer.alloc(size * size * 4)
-  const edge = 1 / size // 抗锯齿过渡带（约 1 像素）
+  const edge = 0.5 / size // 抗锯齿过渡带（约 0.5 像素，细条更锐利）
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
       const x = (px + 0.5) / size
