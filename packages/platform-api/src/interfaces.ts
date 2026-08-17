@@ -21,8 +21,6 @@ export interface ITray {
   destroy(): void;
   /** 托盘图标点击（macOS 左键 / Windows 左键） */
   onClick(callback: () => void): void;
-  /** 运行时替换图标（PNG dataURL；用于"直接用系统 emoji 渲染托盘图标"） */
-  setIcon?(dataUrl: string): void;
 }
 
 export interface IAutoLaunch {
@@ -75,6 +73,4 @@ export interface IPlatform {
   fileSearch?: IFileSearch;
   /** 托盘动画（呼吸帧循环，tray-anim/frame-0..N.png）；帧资源不存在时静默不启动 */
   startTrayAnimation?(framesDir: string, intervalMs?: number): void;
-  /** 用运行时渲染的帧（PNG dataURL 数组）启动托盘呼吸动画；帧 < 2 时不启动 */
-  startTrayAnimationFromDataUrls?(dataUrls: string[], intervalMs?: number): void;
 }

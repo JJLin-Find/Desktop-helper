@@ -92,13 +92,13 @@ docs/                    # 全部调研报告 + 决策文档
 - 验证：PET_TODO_TEST=1 全 PASS（四象限排序/完成置底/取消恢复/结转幂等/历史升序/AI 分析 mock/持久化读回）
 - 坑：smoke 用例名中文被 strip 后 userData 目录可能与其他用例撞车（如 case 9 与 case 2 同为 /tmp/dsh-smoke/AI）→ 已修复：smoke.js 默认改用 `case${序号}` 目录彻底隔离（case 7 保留显式 persist 目录）
 
-### 托盘图标（✅ 已完成：运行时直接渲染系统 🐾 emoji + 呼吸灯）
-- **用户定稿（多轮）**：闪电→爪印→**直接使用 🐾 emoji**。最终方案 = **运行时用系统 emoji 字体渲染 🐾**（renderer 钩子 `__renderEmojiFrames`：canvas 渲染 → 保留 alpha、RGB 置黑 → 内容裁剪去字体 padding → 缩放 16x16 → 20 帧余弦呼吸）→ dataURL 回主进程 → `tray.setIcon` + `startTrayAnimationFromDataUrls`（200ms/帧，4s 周期）
-- **形状 100% = 用户看到的 🐾**（同一字体同一渲染路径；Apple Color Emoji，`document.fonts.check` 确认可用）
-- 静态 `resources/tray.png` + `tray-anim/`（同为 emoji 渲染帧）作启动早期 fallback；渲染完成即替换（约 1.2s 内）
-- **尺寸红线（踩坑三次，勿重蹈）**：macOS 菜单栏 22pt，图标 16pt 标准。三坑：① 单张 44px PNG 当 44pt 渲染溢出；② `addRepresentation` 多分辨率组合在 Tray 上被按 @2x 渲染（32px→32pt）；③ 残留旧实例显示旧图标（"没改"假象）→ **单 @1x 16×16 表示 + 单实例锁**
-- 生成命令（检查/再生成静态帧）：`PET_EMOJI_ANIM=<dir> 跑 electron`（调渲染层钩子写盘 20 帧）；`generate-tray-icon.js` 保留手绘爪印（已非主路径）
-- 诊断：`PET_TRAY_PROBE=1` 打印图标逻辑尺寸/屏幕 scaleFactor
+### 托盘图标（✅ 已完成：黑色闪电模板图 + 呼吸灯 —— 用户多轮定稿的最终方案）
+- **定稿史（勿再改）**：pichu → 闪电 → 爪印 → 🐾 emoji（运行时渲染）→ **回到最开始的闪电**。最终 = v1 多边形锯齿闪电（纯黑模板，用户确认过的外观）
+- `scripts/generate-tray-icon.js`：手写闪电多边形光栅化（pointInPolygon + 3×3 超采样，零依赖）→ `tray.png`(16×16)；`--anim` 生成 `tray-anim/frame-0..19.png`（20 帧余弦 alpha 0.72→1.0 呼吸灯，4s 周期）
+- **尺寸红线（踩坑三次，勿重蹈）**：macOS 菜单栏 22pt，图标 16pt 标准。三坑：① 单张 44px PNG 被系统当 44pt 渲染溢出；② 多分辨率 `addRepresentation` 组合图在 Tray 上被按 @2x 渲染（32px→32pt）；③ 残留旧实例显示旧图标（"没改"假象）→ **单 @1x 16×16 表示 + 单实例锁**
+- 运行时：`base.ts startTrayAnimation` 目录帧循环（200ms/帧 × 20 帧 = 4s）；`darwin.ts`/`win32.ts` trayIconPath 指向 tray.png；`iconAsTemplate: true`
+- 重新生成：`node scripts/generate-tray-icon.js`（单图标）/ `node scripts/generate-tray-icon.js --anim`（动画帧）
+- 诊断：`PET_TRAY_PROBE=1` 打印托盘图标逻辑尺寸与屏幕 scaleFactor
 
 ### 右键菜单（渲染层自绘，可扩展）
 - 💬 聊天框 ｜ 📋 剪贴板历史 ｜ 🔍 文件搜索 ｜ 📅 日程管理 ｜ 🍅 番茄钟 ｜ ✅ 待办清单 ｜ 🙈 隐藏桌宠（CONTEXT_MENU_ITEMS 数组扩展）

@@ -70,12 +70,6 @@ export abstract class ElectronPlatform implements IPlatform {
         this.trayImpl.setToolTip(options.tooltip ?? '桌面宠物助手');
       },
       setTooltip: (t: string) => this.trayImpl?.setToolTip(t),
-      setIcon: (dataUrl: string) => {
-        const img = nativeImage.createFromDataURL(dataUrl);
-        if (img.isEmpty()) return;
-        img.setTemplateImage(true);
-        this.trayImpl?.setImage(img);
-      },
       updateMenu: (items: MenuItem[]) => {
         if (!this.trayImpl) return;
         this.trayImpl.setContextMenu(this.buildMenu(items));
@@ -178,19 +172,6 @@ export abstract class ElectronPlatform implements IPlatform {
       const p = join(framesDir, `frame-${i}.png`);
       if (!existsSync(p)) break;
       frames.push(this.loadTrayImage(p, true)); // 动画帧同为模板图
-    }
-    this.startAnimationFromImages(frames, intervalMs);
-  }
-
-  /** 托盘动画（运行时渲染版）：PNG dataURL 数组 → 呼吸灯循环（系统 emoji 托盘图标用） */
-  startTrayAnimationFromDataUrls(dataUrls: string[], intervalMs = 200): void {
-    if (!this.trayImpl || this.trayAnimTimer) return;
-    const frames: Electron.NativeImage[] = [];
-    for (const d of dataUrls) {
-      const img = nativeImage.createFromDataURL(d);
-      if (img.isEmpty()) continue;
-      img.setTemplateImage(true);
-      frames.push(img);
     }
     this.startAnimationFromImages(frames, intervalMs);
   }
