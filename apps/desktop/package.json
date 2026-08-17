@@ -6,10 +6,10 @@
   "author": "desktop-helper",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "node ../../scripts/generate-icons.js && electron-vite dev",
-    "build": "node ../../scripts/generate-icons.js && electron-vite build",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
     "start": "electron-vite preview",
-    "dist": "node ../../scripts/generate-icons.js && electron-vite build && electron-builder",
+    "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },

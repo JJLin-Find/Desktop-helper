@@ -3,6 +3,8 @@
  * 差异点由 darwin/win32 子类覆盖（托盘模板图标、自启机制、通知 AUMID 等）。
  */
 import { Tray, Menu, Notification, nativeImage, app } from 'electron';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   IAutoLaunch,
   IClipboardWatcher,
@@ -27,6 +29,8 @@ export abstract class ElectronPlatform implements IPlatform {
 
   protected readonly petWindow: PetWindow;
   protected trayImpl: Tray | null = null;
+  /** 托盘动画定时器（呼吸帧循环） */
+  protected trayAnimTimer: NodeJS.Timeout | null = null;
 
   constructor(petWindow: PetWindow) {
     this.petWindow = petWindow;
@@ -37,11 +41,24 @@ export abstract class ElectronPlatform implements IPlatform {
   }
 
   // ---------- Tray ----------
+  /**
+   * 加载托盘图标：@1x 基准图 + 自动探测同目录 `@2x` 变体组合成多分辨率 NativeImage。
+   * 关键：macOS 菜单栏高 22pt，若只传单张 44px PNG 会被系统当作 44pt 渲染（溢出任务栏）。
+   * 提供 22x22(@1x) + 44x44(@2x) 才能正确显示为 22pt 且 Retina 清晰。
+   */
+  protected loadTrayImage(basePath: string): Electron.NativeImage {
+    const img = nativeImage.createEmpty();
+    img.addRepresentation({ scaleFactor: 1, buffer: readFileSync(basePath) });
+    const retina = basePath.replace(/\.png$/i, '@2x.png');
+    if (existsSync(retina)) img.addRepresentation({ scaleFactor: 2, buffer: readFileSync(retina) });
+    return img;
+  }
+
   protected createTray(): ITray {
     return {
       create: (options: TrayOptions) => {
         const icon = options.icon
-          ? nativeImage.createFromPath(options.icon)
+          ? this.loadTrayImage(options.icon)
           : nativeImage.createEmpty();
         if (options.iconAsTemplate) icon.setTemplateImage(true);
         this.trayImpl = new Tray(icon);
@@ -139,7 +156,33 @@ export abstract class ElectronPlatform implements IPlatform {
     return undefined;
   }
 
+  /**
+   * 托盘动画：循环切换 tray-anim/frame-0..N.png（生成自 Live2D 呼吸动画帧），
+   * 实现动态托盘图标。帧 < 2 时不启动。
+   */
+  startTrayAnimation(framesDir: string, intervalMs = 300): void {
+    if (!this.trayImpl || this.trayAnimTimer) return;
+    const frames: Electron.NativeImage[] = [];
+    for (let i = 0; ; i++) {
+      const p = join(framesDir, `frame-${i}.png`);
+      if (!existsSync(p)) break;
+      frames.push(this.loadTrayImage(p));
+    }
+    if (frames.length < 2) return;
+    let idx = 0;
+    this.trayAnimTimer = setInterval(() => {
+      idx = (idx + 1) % frames.length;
+      const frame = frames[idx];
+      if (frame) this.trayImpl?.setImage(frame);
+    }, intervalMs);
+    console.log(`[platform] 托盘动画已启动（${frames.length} 帧，${intervalMs}ms/帧）`);
+  }
+
   dispose(): void {
+    if (this.trayAnimTimer) {
+      clearInterval(this.trayAnimTimer);
+      this.trayAnimTimer = null;
+    }
     this.tray.destroy();
   }
 }

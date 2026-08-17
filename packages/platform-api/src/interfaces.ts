@@ -71,4 +71,6 @@ export interface IPlatform {
   windows: IWindowManager;
   clipboard?: IClipboardWatcher;
   fileSearch?: IFileSearch;
+  /** 托盘动画（呼吸帧循环，tray-anim/frame-0..N.png）；帧资源不存在时静默不启动 */
+  startTrayAnimation?(framesDir: string, intervalMs?: number): void;
 }

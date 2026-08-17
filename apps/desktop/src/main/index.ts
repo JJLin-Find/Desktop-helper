@@ -8,7 +8,8 @@
  * - 打包期通过 Info.plist 设 LSUIElement 隐藏 Dock（开发模式保留 Dock 便于调试）。
  */
 import { app, ipcMain, screen, BrowserWindow } from 'electron';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { PetWindow } from './window/pet-window';
 import { openAISettingsWindow } from './window/settings-window';
 import { openChatWindow } from './window/chat-window';
@@ -374,6 +375,9 @@ function bootstrap(): void {
         ? Win32Platform.trayIconPath()
         : undefined;
   platform.tray.create({ icon, iconAsTemplate: false, tooltip: '桌面宠物助手' });
+  // 托盘动态动画（呼吸）：resources/tray-anim/ 帧资源存在时启用（generate-tray-icon.js --frames-dir 生成）
+  const trayAnimDir = join(app.getAppPath(), 'resources', 'tray-anim');
+  if (existsSync(trayAnimDir)) platform.startTrayAnimation?.(trayAnimDir);
   platform.tray.updateMenu([
     { id: 'show', label: '显示 / 隐藏桌宠', click: () => {
         if (petWindow?.isVisible()) petWindow.hide();
@@ -492,6 +496,53 @@ function bootstrap(): void {
         console.error('[todo-test] 自测异常:', err);
         app.quit();
       });
+    return;
+  }
+  // 托盘动画帧生成（PET_TRAY_ANIM=<dir>）：图标模式连拍 4 帧（呼吸动画相位差）→ 保存 frame-0..3.png
+  // （供 scripts/generate-tray-icon.js --frames-dir 缩放成托盘动画帧资源）
+  if (process.env['PET_TRAY_ANIM']) {
+    const animDir = process.env['PET_TRAY_ANIM'];
+    petWindow!.window!.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          let modelReady = false;
+          for (let i = 0; i < 30; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            try {
+              const info = (await petWindow!.window!.webContents.executeJavaScript(
+                `window.__petDebug ? window.__petDebug() : null`
+              )) as { modelY: number } | null;
+              if (info && info.modelY !== -1) {
+                modelReady = true;
+                break;
+              }
+            } catch {
+              /* 继续等 */
+            }
+          }
+          console.log('[tray-anim] 模型就绪:', modelReady);
+          const frames = (await petWindow!.window!.webContents.executeJavaScript(
+            `window.__captureFrames ? window.__captureFrames(4, 300) : null`
+          )) as (string | null)[] | null;
+          const { mkdirSync } = await import('node:fs');
+          mkdirSync(animDir!, { recursive: true });
+          let saved = 0;
+          if (frames) {
+            const { nativeImage } = await import('electron');
+            frames.forEach((dataUrl, i) => {
+              if (!dataUrl) return;
+              writeFileSync(`${animDir}/frame-${i}.png`, nativeImage.createFromDataURL(dataUrl).toPNG());
+              saved++;
+            });
+          }
+          console.log(`[tray-anim] 保存 ${saved} 帧 → ${animDir}`);
+        } catch (err) {
+          console.error('[tray-anim] 失败:', err);
+        } finally {
+          app.quit();
+        }
+      }, 500);
+    });
     return;
   }
   const screenshotPath = process.env['PET_SCREENSHOT'];

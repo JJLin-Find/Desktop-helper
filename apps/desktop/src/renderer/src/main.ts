@@ -631,6 +631,27 @@ overlayFrame();
       }
     }, 400);
   });
+// 供主进程生成托盘动画帧：图标模式下按固定间隔连拍 count 帧。
+// 图标模式不停止 PIXI.Ticker，Live2D 呼吸/眨眼动画持续播放 → 帧间有相位差，构成动态托盘图标。
+(window as unknown as Record<string, unknown>).__captureFrames = (count = 4, intervalMs = 300) =>
+  new Promise((resolve) => {
+    renderIconMode();
+    const frames: (string | null)[] = [];
+    let i = 0;
+    const step = (): void => {
+      setTimeout(() => {
+        try {
+          frames.push(petCanvas.toDataURL('image/png'));
+        } catch {
+          frames.push(null);
+        }
+        i++;
+        if (i < count) step();
+        else resolve(frames);
+      }, intervalMs);
+    };
+    step();
+  });
 if (RENDER_MODE === 'live2d') {
   void initLive2D();
 } else {

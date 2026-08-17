@@ -1,27 +1,34 @@
 #!/usr/bin/env node
 /**
- * 生成彩色桌宠托盘图标（tray.png，44x44 = 22pt @2x，Retina 菜单栏清晰）。
+ * 生成彩色桌宠托盘图标（pichu 头像）。
  *
  * 背景：原 trayTemplate.png 是 generate-icons.js 画的「黑色实心圆」模板图
- * （macOS Template = 纯黑+alpha，系统自动反色），菜单栏上就是个黑点。
- * 本脚本从应用彩色图标 icon.png（512x512，pichu 渲染产物）解码 → 居中裁剪
- * 内容区域（icon.png 中 pichu 偏左下）→ 双线性缩放到 44x44 → 输出彩色 PNG。
- * 彩色非 template：浅色/深色菜单栏均可见（pichu 黄+黑描边）。
+ * （macOS Template = 纯黑+alpha，系统自动反色），菜单栏上就是个黑点；且单张
+ * 44px PNG 传给 Tray 会被 macOS 当作 44pt 渲染（菜单栏仅 22pt 高）导致溢出。
  *
- * 用法：node scripts/generate-tray-icon.js
- * 依赖：apps/desktop/resources/icon.png 存在（仓库已含）。
+ * 本脚本从应用彩色图标 icon.png（512x512，pichu 渲染产物）解码 → 居中裁剪
+ * 内容区域（icon.png 中 pichu 偏左下，contentBox 校正）→ 双线性缩放输出
+ * @1x(22x22) + @2x(44x44) 双尺寸（22pt 显示 + Retina 清晰），彩色非 template。
+ *
+ * 用法：
+ *   node scripts/generate-tray-icon.js                       # 单图标 → resources/tray.png + tray@2x.png
+ *   node scripts/generate-tray-icon.js --frames-dir=<dir>    # 动画帧：读 dir/frame-0..N.png
+ *                                                           # （PET_TRAY_ANIM=<dir> 生成）→ 统一第一帧
+ *                                                           # contentBox 防帧间跳动 → resources/tray-anim/
+ *
  * 无外部依赖：Node 内置 zlib + 手写 PNG 解码/编码（与 generate-icons.js 同风格）。
  */
 'use strict'
 
 const { deflateSync, inflateSync } = require('node:zlib')
-const { readFileSync, writeFileSync } = require('node:fs')
+const { readFileSync, writeFileSync, existsSync, mkdirSync } = require('node:fs')
 const { join } = require('node:path')
 
 const ROOT = join(__dirname, '..')
-const ICON_PNG = join(ROOT, 'apps', 'desktop', 'resources', 'icon.png')
-const OUT_PNG = join(ROOT, 'apps', 'desktop', 'resources', 'tray.png')
-const TARGET = 44 // 22pt @2x
+const RES = join(ROOT, 'apps', 'desktop', 'resources')
+const ICON_PNG = join(RES, 'icon.png')
+const SIZE1X = 22 // 菜单栏 22pt（@1x 基准；44px 单图会被当 44pt 渲染而溢出）
+const SIZE2X = 44 // @2x Retina 清晰
 
 // ---------- PNG 解码（RGBA） ----------
 function decodePng(buf) {
@@ -74,7 +81,7 @@ function decodePng(buf) {
   return { w, h, rgba: out, hasAlpha: colorType === 6 }
 }
 
-// ---------- 内容边界（非透明区域，含 padding） ----------
+// ---------- 内容边界（非透明区域，含 padding，正方形） ----------
 function contentBox(w, h, rgba) {
   let minX = w, minY = h, maxX = -1, maxY = -1
   for (let y = 0; y < h; y++) {
@@ -90,14 +97,14 @@ function contentBox(w, h, rgba) {
   }
   const cw = maxX - minX + 1
   const ch = maxY - minY + 1
-  // 取正方形：边长 = max(宽,高) + 12% padding
   let side = Math.max(cw, ch)
-  side = Math.round(side * 1.12)
+  side = Math.round(side * 1.12) // 12% padding
+  side = Math.min(side, w, h) // 绝不超帧尺寸（图标模式下模型可能占满帧，padding 自动收缩）
+  if (side < 1) side = 1
   const cx = minX + cw / 2
   const cy = minY + ch / 2
   let x0 = Math.round(cx - side / 2)
   let y0 = Math.round(cy - side / 2)
-  // clamp 到画布
   x0 = Math.max(0, Math.min(x0, w - side))
   y0 = Math.max(0, Math.min(y0, h - side))
   return { x0, y0, side }
@@ -174,17 +181,50 @@ function encodePng(width, height, rgba) {
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))])
 }
 
-// ---------- 主流程 ----------
-const src = decodePng(readFileSync(ICON_PNG))
-const { x0, y0, side } = contentBox(src.w, src.h, src.rgba)
-console.log(`[generate-tray] icon.png ${src.w}x${src.h}，内容居中裁剪区域 x${x0} y${y0} ${side}x${side}`)
-
-// 裁剪到方形
-const crop = Buffer.alloc(side * side * 4)
-for (let y = 0; y < side; y++) {
-  src.rgba.copy(crop, y * side * 4, ((y0 + y) * src.w + x0) * 4, ((y0 + y) * src.w + x0 + side) * 4)
+// ---------- 输出：裁剪 box → 缩放 @1x/@2x 双尺寸写盘 ----------
+function writeTray(outPath, rgba, sw, sh, box) {
+  const side = box.side
+  const crop = Buffer.alloc(side * side * 4)
+  for (let y = 0; y < side; y++) {
+    rgba.copy(crop, y * side * 4, ((box.y0 + y) * sw + box.x0) * 4, ((box.y0 + y) * sw + box.x0 + side) * 4)
+  }
+  writeFileSync(outPath, encodePng(SIZE1X, SIZE1X, resizeBilinear(crop, side, side, SIZE1X, SIZE1X)))
+  const retina = outPath.replace(/\.png$/i, '@2x.png')
+  writeFileSync(retina, encodePng(SIZE2X, SIZE2X, resizeBilinear(crop, side, side, SIZE2X, SIZE2X)))
+  return readFileSync(outPath).length + readFileSync(retina).length
 }
 
-const tray = resizeBilinear(crop, side, side, TARGET, TARGET)
-writeFileSync(OUT_PNG, encodePng(TARGET, TARGET, tray))
-console.log(`[generate-tray] wrote ${OUT_PNG} (${TARGET}x${TARGET}, ${readFileSync(OUT_PNG).length} bytes)`)
+// ---------- 主流程 ----------
+const args = process.argv.slice(2)
+const framesArg = args.find((a) => a.startsWith('--frames-dir='))
+
+if (framesArg) {
+  // 动画帧模式：读 dir/frame-0..N.png（PET_TRAY_ANIM 连拍产物），统一第一帧 contentBox 防帧间跳动
+  const dir = framesArg.split('=')[1]
+  const srcs = []
+  for (let i = 0; ; i++) {
+    const p = join(dir, `frame-${i}.png`)
+    if (!existsSync(p)) break
+    srcs.push({ img: decodePng(readFileSync(p)) })
+  }
+  if (srcs.length < 2) {
+    console.error(`[generate-tray] 帧不足：${dir}（需要 frame-0..N.png，≥2 帧）`)
+    process.exit(1)
+  }
+  const box = contentBox(srcs[0].img.w, srcs[0].img.h, srcs[0].img.rgba)
+  const outDir = join(RES, 'tray-anim')
+  mkdirSync(outDir, { recursive: true })
+  console.log(`[generate-tray] 动画 ${srcs.length} 帧，统一裁剪区域 x${box.x0} y${box.y0} ${box.side}x${box.side}`)
+  srcs.forEach((s, i) => {
+    const bytes = writeTray(join(outDir, `frame-${i}.png`), s.img.rgba, s.img.w, s.img.h, box)
+    console.log(`[generate-tray]   frame-${i}.png + @2x（${bytes} bytes）`)
+  })
+  console.log(`[generate-tray] 托盘动画帧已写入 ${outDir}`)
+} else {
+  // 单图标模式：icon.png → tray.png + tray@2x.png
+  const src = decodePng(readFileSync(ICON_PNG))
+  const box = contentBox(src.w, src.h, src.rgba)
+  console.log(`[generate-tray] icon.png ${src.w}x${src.h}，内容居中裁剪区域 x${box.x0} y${box.y0} ${box.side}x${box.side}`)
+  const bytes = writeTray(join(RES, 'tray.png'), src.rgba, src.w, src.h, box)
+  console.log(`[generate-tray] wrote tray.png(${SIZE1X}x${SIZE1X}) + tray@2x.png(${SIZE2X}x${SIZE2X})（${bytes} bytes）`)
+}
