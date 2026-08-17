@@ -685,7 +685,7 @@ overlayFrame();
       let minX = size, minY = size, maxX = -1, maxY = -1;
       for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
-          if (img.data[(y * size + x) * 4 + 3] > 8) {
+          if ((img.data[(y * size + x) * 4 + 3] ?? 0) > 8) {
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -702,6 +702,10 @@ overlayFrame();
       const out = document.createElement('canvas');
       out.width = out.height = 16;
       const octx = out.getContext('2d');
+      if (!octx) {
+        resolve([]);
+        return;
+      }
       const frames: (string | null)[] = [];
       for (let f = 0; f < count; f++) {
         // 余弦呼吸：0.72 → 1.0 → 0.72（4s 周期，200ms/帧）
