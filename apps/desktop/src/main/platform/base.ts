@@ -162,10 +162,11 @@ export abstract class ElectronPlatform implements IPlatform {
   }
 
   /**
-   * 托盘动画：循环切换 tray-anim/frame-0..N.png（生成自 Live2D 呼吸动画帧），
+   * 托盘动画：循环切换 tray-anim/frame-0..N.png（呼吸灯帧，20 帧余弦 alpha 渐变），
    * 实现动态托盘图标。帧 < 2 时不启动。
+   * 默认 200ms/帧 × 20 帧 = 4s 完整明暗周期（呼吸灯频率）。
    */
-  startTrayAnimation(framesDir: string, intervalMs = 300): void {
+  startTrayAnimation(framesDir: string, intervalMs = 200): void {
     if (!this.trayImpl || this.trayAnimTimer) return;
     const frames: Electron.NativeImage[] = [];
     for (let i = 0; ; i++) {
