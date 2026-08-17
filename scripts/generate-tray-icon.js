@@ -25,55 +25,57 @@ const { join } = require('node:path')
 const RES = join(__dirname, '..', 'apps', 'desktop', 'resources')
 const SIZE = 16
 
-// ---------- 闪电粗条路径（中心线，归一化 0..1；粗线段距离场光栅化，腰部焊接连贯） ----------
-const SEGMENTS = [
-  [0.62, 0.02, 0.30, 0.44], // 顶 → 左上（斜）
-  [0.30, 0.44, 0.56, 0.44], // 腰部水平折
-  [0.56, 0.44, 0.38, 0.98]  // 腰部 → 底尖（斜）
+// ---------- 闪电多边形（归一化 0..1，y 向下；闭合锯齿形，用户定稿样式） ----------
+const BOLT = [
+  [0.60, 0.04],
+  [0.28, 0.48],
+  [0.46, 0.48],
+  [0.40, 0.96],
+  [0.72, 0.52],
+  [0.54, 0.52]
 ]
-/** 半宽（归一化）：约 0.64px @16px → 条径 ~1.7px 视觉黑（用户要求的原始粗细，黑色占位 ~16%） */
-const HALF_WIDTH = 0.04
+// 最后一个顶点隐式回到第一个顶点闭合
 
 /** 动画帧数（呼吸灯：20 帧 × 200ms = 4s 一个完整明暗周期） */
 const ANIM_FRAMES = 20
 
-/** 点到线段距离 */
-function segDist(px, py, s) {
-  const ax = s[0]
-  const ay = s[1]
-  const bx = s[2]
-  const by = s[3]
-  const dx = bx - ax
-  const dy = by - ay
-  const len2 = dx * dx + dy * dy
-  const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+/** 射线法：点是否在多边形内 */
+function pointInPolygon(x, y, pts) {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0]
+    const yi = pts[i][1]
+    const xj = pts[j][0]
+    const yj = pts[j][1]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
 }
 
 /**
- * 光栅化黑色闪电粗条（距离场 + 1px 线性抗锯齿，两端圆头，腰部自然焊接）。
+ * 光栅化黑色闪电（3x3 超采样抗锯齿）。
  * @param {number} size 输出边长
  * @param {number} alphaMul alpha 倍率（动画帧脉动用，1.0 = 全亮）
  */
 function drawBolt(size, alphaMul = 1) {
   const buf = Buffer.alloc(size * size * 4)
-  const edge = 0.5 / size // 抗锯齿过渡带（约 0.5 像素，细条更锐利）
+  const pts = BOLT.map(([x, y]) => [x * size, y * size])
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
-      const x = (px + 0.5) / size
-      const y = (py + 0.5) / size
-      let minD = Infinity
-      for (const s of SEGMENTS) {
-        const d = segDist(x, y, s)
-        if (d < minD) minD = d
+      let hits = 0
+      for (let sy = 0; sy < 3; sy++) {
+        for (let sx = 0; sx < 3; sx++) {
+          if (pointInPolygon(px + (sx + 0.5) / 3, py + (sy + 0.5) / 3, pts)) hits++
+        }
       }
-      let alpha = (HALF_WIDTH + edge - minD) / edge
-      alpha = Math.max(0, Math.min(1, alpha))
+      const alpha = Math.round((hits / 9) * 255 * alphaMul)
       const i = (py * size + px) * 4
       buf[i] = 0 // 纯黑
       buf[i + 1] = 0
       buf[i + 2] = 0
-      buf[i + 3] = Math.round(alpha * 255 * alphaMul)
+      buf[i + 3] = alpha
     }
   }
   return buf
