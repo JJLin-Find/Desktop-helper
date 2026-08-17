@@ -11,6 +11,7 @@
  *   6. 番茄钟（阶段切换/统计/停止）
  *   7. 存储持久化（写入→重启读回）
  *   8. Markdown 渲染（信息查询助手）
+ *   9. 待办清单（四象限/排序/结转/历史/AI分析）
  *
  * 用法：node scripts/smoke.js          （先自行构建；或传 --build 先构建）
  * 退出码：0=全部通过；1=任一失败
@@ -86,14 +87,22 @@ const CASES = [
     name: 'Markdown 渲染（信息查询助手）',
     env: { PET_MD_TEST: '1', PET_SCREENSHOT: `${TMP}/md.png` },
     assert: (out) => out.includes('[md-test] 渲染输出') && out.includes('<h1>')
+  },
+  {
+    name: '待办清单（四象限/排序/结转/历史/AI分析）',
+    env: { PET_TODO_TEST: '1', PET_AI_MOCK: '1', PET_SCREENSHOT: `${TMP}/todo.png` },
+    assert: (out) => out.includes('[todo-test] 全部完成 ✅') && !/\[todo-test\].*FAIL/.test(out)
   }
 ]
 
 let passed = 0
 const failures = []
 
+// userData 默认用序号目录：中文名 strip 后可能撞车（如 case2/case9 同为 "AI"）
+let caseIndex = 0
 for (const c of CASES) {
-  const userData = c.userData ?? `${TMP}/${c.name.replace(/[^\w]/g, '')}`
+  caseIndex++
+  const userData = c.userData ?? `${TMP}/case${caseIndex}`
   const env = { ...process.env, ...c.env }
   process.stdout.write(`[smoke] ▶ ${c.name} ... `)
   const r = spawnSync(ELECTRON, ['.', '--no-sandbox', `--user-data-dir=${userData}`], {

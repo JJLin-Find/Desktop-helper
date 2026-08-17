@@ -3,11 +3,11 @@
  * 渲染层只能访问 window.pet.*，其余一律不可达。
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { PetTransition, FoodId, PetPart, AIProviderPreset } from '@desktop-helper/core';
+import type { PetTransition, FoodId, PetPart, AIProviderPreset, TodoItem } from '@desktop-helper/core';
 import type { PetActionCommand } from '@desktop-helper/platform-api';
 
 export type { PetActionCommand };
-export type { PetTransition, FoodId, PetPart, AIProviderPreset };
+export type { PetTransition, FoodId, PetPart, AIProviderPreset, TodoItem };
 
 /** 文件搜索选项（与主进程 services/file-search.service.ts 的 FileSearchOptions 结构一致） */
 export interface FileSearchOptions {
@@ -76,6 +76,18 @@ export interface PomodoroStatus {
   focusMinutes: number;
   breakMinutes: number;
 }
+
+/** 新增待办入参（与主进程 services/todo.service.ts 的 TodoAddInput 结构一致） */
+export interface TodoAddInput {
+  name: string;
+  start?: string;
+  end?: string;
+  important: boolean;
+  urgent: boolean;
+}
+
+/** 待办可更新字段（与主进程 services/todo.service.ts 的 TodoPatch 结构一致） */
+export type TodoPatch = Partial<Pick<TodoItem, 'name' | 'start' | 'end' | 'important' | 'urgent'>>;
 
 export interface PetClickInput {
   x: number;
@@ -191,6 +203,23 @@ export interface PetApi {
   pomodoroSessionsToday(): Promise<number>;
   /** 订阅番茄钟状态变化（阶段切换后主进程广播，返回取消函数） */
   onPomodoroChanged(cb: () => void): () => void;
+  // 待办清单
+  /** 打开/聚焦待办面板（右键菜单入口） */
+  todoOpen(): Promise<boolean>;
+  /** 某日待办列表（默认今天；先跨天结转；四象限排序） */
+  todoList(dateKey?: string): Promise<TodoItem[]>;
+  /** 新增待办（返回该日排序列表；name 为空时 reject） */
+  todoAdd(input: TodoAddInput, dateKey?: string): Promise<TodoItem[]>;
+  /** 标记完成/未完成（done=true 记 doneAt；返回该日排序列表） */
+  todoSetDone(id: string, done: boolean, dateKey?: string): Promise<TodoItem[]>;
+  /** 删除待办（返回该日排序列表） */
+  todoRemove(id: string, dateKey?: string): Promise<TodoItem[]>;
+  /** 更新待办字段（返回该日排序列表；name 为空时 reject） */
+  todoUpdate(id: string, patch: TodoPatch, dateKey?: string): Promise<TodoItem[]>;
+  /** 历史完成记录（[fromKey, toKey] 含端点，按完成时间升序） */
+  todoHistory(fromKey: string, toKey: string): Promise<TodoItem[]>;
+  /** AI 简要分析某区间完成情况（不污染对话历史） */
+  todoAnalyze(fromKey: string, toKey: string): Promise<{ ok: boolean; text: string }>;
 }
 
 const api: PetApi = {
@@ -277,6 +306,16 @@ const api: PetApi = {
       ipcRenderer.removeListener('pet:pomodoro:changed', listener);
     };
   },
+  todoOpen: () => ipcRenderer.invoke('pet:todo:open'),
+  todoList: (dateKey?: string) => ipcRenderer.invoke('pet:todo:list', dateKey),
+  todoAdd: (input: TodoAddInput, dateKey?: string) => ipcRenderer.invoke('pet:todo:add', input, dateKey),
+  todoSetDone: (id: string, done: boolean, dateKey?: string) =>
+    ipcRenderer.invoke('pet:todo:set-done', id, done, dateKey),
+  todoRemove: (id: string, dateKey?: string) => ipcRenderer.invoke('pet:todo:remove', id, dateKey),
+  todoUpdate: (id: string, patch: TodoPatch, dateKey?: string) =>
+    ipcRenderer.invoke('pet:todo:update', id, patch, dateKey),
+  todoHistory: (fromKey: string, toKey: string) => ipcRenderer.invoke('pet:todo:history', fromKey, toKey),
+  todoAnalyze: (fromKey: string, toKey: string) => ipcRenderer.invoke('pet:todo:analyze', fromKey, toKey),
   onAiChunk: (cb) => {
     const listener = (_e: unknown, chunk: AiChunk): void => cb(chunk);
     ipcRenderer.on('pet:ai:chunk', listener);

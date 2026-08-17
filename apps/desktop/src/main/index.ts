@@ -16,6 +16,7 @@ import { openClipboardPanel } from './window/clipboard-panel';
 import { openFileSearchPanel } from './window/file-search-panel';
 import { openCalendarPanel } from './window/calendar-panel';
 import { openPomodoroPanel } from './window/pomodoro-panel';
+import { openTodoPanel } from './window/todo-panel';
 import {
   openBubbleWindow,
   appendBubbleText,
@@ -36,6 +37,8 @@ import { ClipboardHistoryService } from './services/clipboard.service';
 import { FileSearchService, type FileSearchOptions } from './services/file-search.service';
 import { CalendarService, CAL_JOB_TYPE, type CalendarEventInput } from './services/calendar.service';
 import { PomodoroService, POMO_JOB_TYPE } from './services/pomodoro.service';
+import { TodoService, type TodoAddInput, type TodoPatch, type TodoStoreShape } from './services/todo.service';
+import { dateKeyOf, todayKey, quadrantOf, type TodoItem } from '@desktop-helper/core';
 import type { FoodId } from '@desktop-helper/core';
 import type { IPlatform } from '@desktop-helper/platform-api';
 
@@ -48,6 +51,8 @@ let clipboardService: ClipboardHistoryService | null = null;
 let fileSearchService: FileSearchService | null = null;
 let calendarService: CalendarService | null = null;
 let pomodoroService: PomodoroService | null = null;
+let todoStore: JsonStore<TodoStoreShape> | null = null;
+let todoService: TodoService | null = null;
 let storeRef: JsonStore<{
   scheduler: { jobs: unknown[]; paused: boolean };
   ai: unknown;
@@ -264,6 +269,41 @@ function registerIpc(): void {
     openPomodoroPanel();
     return true;
   });
+
+  // ---- 待办清单 IPC ----
+  // 打开/聚焦面板（桌宠右键菜单「✅ 待办清单」入口）
+  ipcMain.handle('pet:todo:open', () => {
+    openTodoPanel();
+    return true;
+  });
+  // 某日待办列表（默认今天；先跨天结转）
+  ipcMain.handle('pet:todo:list', (_e, dateKey?: string) =>
+    todoService?.list(typeof dateKey === 'string' && dateKey ? dateKey : undefined) ?? []
+  );
+  // 新增待办（name 为空时服务抛错 → invoke reject）
+  ipcMain.handle('pet:todo:add', (_e, input: TodoAddInput, dateKey?: string) =>
+    todoService?.add(input ?? { name: '', important: false, urgent: false }, dateKey) ?? []
+  );
+  // 标记完成/未完成（done=true 记 doneAt）
+  ipcMain.handle('pet:todo:set-done', (_e, id: string, done: boolean, dateKey?: string) =>
+    todoService?.setDone(String(id ?? ''), Boolean(done), dateKey) ?? []
+  );
+  // 删除待办
+  ipcMain.handle('pet:todo:remove', (_e, id: string, dateKey?: string) =>
+    todoService?.remove(String(id ?? ''), dateKey) ?? []
+  );
+  // 更新待办字段
+  ipcMain.handle('pet:todo:update', (_e, id: string, patch: TodoPatch, dateKey?: string) =>
+    todoService?.update(String(id ?? ''), patch ?? {}, dateKey) ?? []
+  );
+  // 历史完成记录（[fromKey, toKey] 含端点，按完成时间升序）
+  ipcMain.handle('pet:todo:history', (_e, fromKey: string, toKey: string) =>
+    todoService?.history(String(fromKey ?? ''), String(toKey ?? '')) ?? []
+  );
+  // AI 简要分析某区间完成情况（不污染对话历史）
+  ipcMain.handle('pet:todo:analyze', async (_e, fromKey: string, toKey: string) =>
+    todoService?.analyze(String(fromKey ?? ''), String(toKey ?? '')) ?? { ok: false, text: '待办服务未就绪' }
+  );
 }
 
 /** 番茄钟服务未就绪时的兜底状态（正常情况下服务在 IPC 可达前已初始化） */
@@ -325,15 +365,15 @@ function bootstrap(): void {
   platform = createPlatform(petWindow);
 
   // 托盘
-  // 图标：macOS 用 Template 模板图（自动适配深色模式）；Windows 用普通彩色 PNG
-  //（非 template；Windows 无模板图概念，见 base.createTray 的 iconAsTemplate 传参）。
+  // 图标：彩色 pichu 头像（resources/tray.png，44x44=22pt@2x，非 template；
+  // 浅/深色菜单栏与任务栏均可见；generate-tray-icon.js 从 icon.png 生成）。
   const icon =
     process.platform === 'darwin'
       ? DarwinPlatform.trayIconPath()
       : process.platform === 'win32'
         ? Win32Platform.trayIconPath()
         : undefined;
-  platform.tray.create({ icon, iconAsTemplate: process.platform === 'darwin', tooltip: '桌面宠物助手' });
+  platform.tray.create({ icon, iconAsTemplate: false, tooltip: '桌面宠物助手' });
   platform.tray.updateMenu([
     { id: 'show', label: '显示 / 隐藏桌宠', click: () => {
         if (petWindow?.isVisible()) petWindow.hide();
@@ -388,6 +428,10 @@ function bootstrap(): void {
     }
   };
 
+  // 待办清单服务（JsonStore 原子写 userData/todo-data.json；analyze 复用 AI 服务）
+  todoStore = new JsonStore<TodoStoreShape>({ days: {} }, 'todo-data.json');
+  todoService = new TodoService(todoStore, aiService);
+
   // 演示任务：每 60s 心情衰减 tick（接入统一调度器；幂等注册，防持久化恢复后重复）
   if (!schedulerService.scheduler.hasJob('stats-decay-tick')) {
     schedulerService.addJob({
@@ -435,6 +479,17 @@ function bootstrap(): void {
       .then(() => app.quit())
       .catch((err) => {
         console.error('[pomo-test] 自测异常:', err);
+        app.quit();
+      });
+    return;
+  }
+  // 待办清单自测（PET_TODO_TEST=1）：四象限排序/完成置底/取消恢复/跨天结转幂等/历史/AI 分析/持久化
+  // （独立于截图验证；PET_AI_MOCK=1 时内置 mock OpenAI 服务器供 analyze 用例）
+  if (process.env['PET_TODO_TEST']) {
+    void runTodoTest()
+      .then(() => app.quit())
+      .catch((err) => {
+        console.error('[todo-test] 自测异常:', err);
         app.quit();
       });
     return;
@@ -1006,6 +1061,159 @@ async function runPomoTest(): Promise<void> {
   check('⑤ stop 后 Job 已移除', !sched.scheduler.hasJob('pomodoro:phase'));
 
   console.log('[pomo-test] 全部完成 ✅', allOk ? '（全部 PASS）' : '（存在 FAIL）');
+}
+
+/** 待办清单自测（PET_TODO_TEST=1）：四象限排序/完成置底/取消恢复/跨天结转幂等/历史/AI 分析/持久化 */
+async function runTodoTest(): Promise<void> {
+  const todo = todoService;
+  const ai = aiService;
+  const store = todoStore;
+  if (!todo || !ai || !store) {
+    console.error('[todo-test] 服务未初始化');
+    return;
+  }
+  let allOk = true;
+  const check = (label: string, pass: boolean, extra = ''): void => {
+    if (!pass) allOk = false;
+    console.log(`[todo-test] ${label}: ${pass ? 'PASS' : 'FAIL'}${extra ? ' ' + extra : ''}`);
+  };
+
+  console.log('[todo-test] 存储文件:', todo.path);
+  const today = todayKey();
+  const daysAgo = (n: number): string => dateKeyOf(new Date(Date.now() - n * 86_400_000));
+  const yesterday = daysAgo(1);
+
+  // 清空旧数据，保证可重复运行
+  store.set('days', {});
+
+  // ① 添加 4 个任务覆盖 4 个象限（重要紧急带 start '09:00' end '10:00'）
+  todo.add({ name: 'todo-test-重要紧急', important: true, urgent: true, start: '09:00', end: '10:00' });
+  todo.add({ name: 'todo-test-重要不紧急', important: true, urgent: false });
+  todo.add({ name: 'todo-test-不重要紧急', important: false, urgent: true });
+  todo.add({ name: 'todo-test-不重要不紧急', important: false, urgent: false });
+  const l1 = todo.list();
+  const order1 = l1.map((t) => quadrantOf(t)).join(',');
+  check(
+    '① 四象限排序',
+    order1 === 'urgent-important,important,urgent,neither',
+    `顺序=${order1}`
+  );
+  check('① 带时间任务字段保留', l1[0]?.start === '09:00' && l1[0]?.end === '10:00', `start=${l1[0]?.start}`);
+
+  // ② setDone 其中一个 → 排到最后 + 记 doneAt
+  const doneId = l1[0]?.id ?? '';
+  const l2 = todo.setDone(doneId, true);
+  const last = l2[l2.length - 1];
+  check('② setDone 后排到最后', last?.id === doneId, `末位=${last?.name}`);
+  check('② doneAt 已记录', typeof last?.doneAt === 'number' && (last?.doneAt ?? 0) > 0, `doneAt=${last?.doneAt}`);
+
+  // ③ 再次 setDone(false) → 恢复原相对位置（重要紧急回到首位）+ 清除 doneAt
+  const l3 = todo.setDone(doneId, false);
+  check(
+    '③ 取消完成后恢复排序',
+    l3[0]?.id === doneId && quadrantOf(l3[0]!) === 'urgent-important',
+    `首位=${l3[0]?.name}`
+  );
+  check('③ doneAt 已清除', l3[0]?.doneAt === undefined);
+
+  // ④ 构造"昨天"数据（直接写 store：done=false、无 carriedTo）→ ensureToday 结转副本 + 幂等
+  store.set('days', {
+    ...store.get('days'),
+    [yesterday]: [
+      {
+        id: 'yesterday-1',
+        name: 'todo-test-昨日任务',
+        date: yesterday,
+        start: '08:00',
+        end: '09:00',
+        important: true,
+        urgent: true,
+        done: false,
+        createdAt: Date.now() - 86_400_000
+      }
+    ]
+  });
+  const todayBefore = (store.get('days')[today] ?? []).length;
+  todo.ensureToday();
+  const rolled = (store.get('days')[today] ?? []).filter((t) => t.rolloverFrom === 'yesterday-1');
+  check(
+    '④ 结转副本出现且字段保留',
+    rolled.length === 1 &&
+      rolled[0]?.name === 'todo-test-昨日任务' &&
+      rolled[0]?.date === today &&
+      rolled[0]?.start === '08:00' &&
+      rolled[0]?.end === '09:00' &&
+      rolled[0]?.important === true &&
+      rolled[0]?.urgent === true &&
+      rolled[0]?.done === false,
+    `副本数=${rolled.length}`
+  );
+  const orig = (store.get('days')[yesterday] ?? []).find((t) => t.id === 'yesterday-1');
+  check('④ 原任务 carriedTo=today', orig?.carriedTo === today, `carriedTo=${orig?.carriedTo}`);
+  const after1 = (store.get('days')[today] ?? []).length;
+  todo.ensureToday();
+  const after2 = (store.get('days')[today] ?? []).length;
+  check('④ 再次 ensureToday 不重复复制', after2 === after1 && todayBefore + 1 === after1, `today ${todayBefore}→${after1}→${after2}`);
+
+  // ⑤ history：标记昨天原任务 + 今天结转副本为完成 → [三天前, 今天] 全部 done 且按 doneAt 升序
+  todo.setDone('yesterday-1', true, yesterday);
+  const rolledId = rolled[0]?.id ?? '';
+  todo.setDone(rolledId, true, today);
+  const h = todo.history(daysAgo(3), today);
+  const ascOk = h.every((t, i) => i === 0 || (h[i - 1]?.doneAt ?? 0) <= (t.doneAt ?? 0));
+  check('⑤ history 返回全部 done 任务', h.length === 2 && h.every((t) => t.done), `count=${h.length}`);
+  check('⑤ doneAt 升序', ascOk);
+
+  // ⑥ analyze：PET_AI_MOCK 环境内置 mock OpenAI 服务器 → ok=true 且 text 非空；不污染对话历史
+  if (process.env['PET_AI_MOCK']) {
+    const http = await import('node:http');
+    const mockSrv = http.createServer((req, res) => {
+      if (req.url?.includes('/chat/completions')) {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+          const parsed = JSON.parse(body) as { messages?: { role: string; content: string }[] };
+          const last = parsed.messages?.at(-1)?.content ?? '';
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: `(mock)[待办分析] 共收到 ${last.length} 字符的待办清单，建议优先处理重要紧急事项。` } }] })}\n\n`
+          );
+          res.write('data: [DONE]\n\n');
+          res.end();
+        });
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((r) => mockSrv.listen(18100, r));
+    ai.setConfig({ baseURL: 'http://127.0.0.1:18100', apiKey: 'mock-key', model: 'mock-model' });
+    // 关闭联网检索（assistant 模式会自动检索），保证 analyze 测试封闭、不依赖外部网络
+    ai.setSearchConfig({ provider: '', apiKey: '', enabled: false });
+    const histBefore = ai.getHistoryLength();
+    const a = await todo.analyze(daysAgo(3), today);
+    const histAfter = ai.getHistoryLength();
+    check('⑥ analyze ok=true 且 text 非空', a.ok && a.text.length > 0, `text=${JSON.stringify(a.text.slice(0, 40))}`);
+    check('⑥ 分析不污染对话历史', histAfter === histBefore, `history ${histBefore}→${histAfter}`);
+    mockSrv.close();
+  } else {
+    console.log('[todo-test] ⑥ 跳过（非 PET_AI_MOCK 环境）');
+  }
+
+  // ⑦ 持久化：写盘后重新 new TodoService（同 store 路径）读回，断言数据一致
+  const svc2 = new TodoService(new JsonStore<TodoStoreShape>({ days: {} }, 'todo-data.json'), ai);
+  const relisted = svc2.list(today);
+  const cur = todo.list(today);
+  const same =
+    relisted.length === cur.length &&
+    relisted.every((t, i) => t.id === cur[i]?.id && t.name === cur[i]?.name && t.done === cur[i]?.done);
+  check('⑦ 持久化读回数据一致', same, `n=${relisted.length}`);
+
+  if (!allOk) {
+    console.error('[todo-test] FAIL: 存在未通过的断言（见上方 [todo-test] ... FAIL 行）');
+    process.exit(1);
+  }
+  console.log('[todo-test] 全部完成 ✅（全部 PASS）');
 }
 
 /** AI 对话全链路自测（内置 mock OpenAI 兼容服务器；验证 pet/assistant 双模式人设注入） */

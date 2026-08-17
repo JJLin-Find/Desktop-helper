@@ -439,6 +439,7 @@ const CONTEXT_MENU_ITEMS: ContextMenuItem[] = [
   { id: 'file-search', label: '🔍 文件搜索', action: () => void window.pet.fileSearchOpen() },
   { id: 'calendar', label: '📅 日程管理', action: () => void window.pet.calendarOpen() },
   { id: 'pomodoro', label: '🍅 番茄钟', action: () => void window.pet.pomodoroOpen() },
+  { id: 'todo', label: '✅ 待办清单', action: () => void window.pet.todoOpen() },
   { id: 'hide', label: '🙈 隐藏桌宠', action: () => void window.pet.hidePet() }
   // 后续可加：AI 设置、喂食、退出 等
 ];

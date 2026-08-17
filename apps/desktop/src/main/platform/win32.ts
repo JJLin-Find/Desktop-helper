@@ -30,8 +30,8 @@ export class Win32Platform extends ElectronPlatform {
     app.setAppUserModelId('com.desktophelper.pet');
   }
 
-  /** 托盘图标路径：Windows 用普通彩色 PNG（非 template；模板仅 macOS 生效） */
+  /** 托盘图标路径：彩色 pichu 头像（44x44；非 template，浅/深色任务栏均可见） */
   static trayIconPath(): string {
-    return join(app.getAppPath(), 'resources', 'icon.png');
+    return join(app.getAppPath(), 'resources', 'tray.png');
   }
 }

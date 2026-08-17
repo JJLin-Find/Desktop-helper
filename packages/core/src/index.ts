@@ -11,3 +11,4 @@ export * from './pet-state-machine';
 export * from './pet-stats';
 export * from './pet-behavior';
 export * from './ai-client';
+export * from './todo';

@@ -18,8 +18,8 @@ export class DarwinPlatform extends ElectronPlatform {
     super.dispose();
   }
 
-  /** 托盘图标路径（Template 风格，自动适配深色模式） */
+  /** 托盘图标路径（彩色 pichu 头像，44x44=22pt@2x；非 template，浅/深色菜单栏均可见） */
   static trayIconPath(): string {
-    return join(app.getAppPath(), 'resources', 'trayTemplate.png');
+    return join(app.getAppPath(), 'resources', 'tray.png');
   }
 }

@@ -81,8 +81,25 @@ docs/                    # 全部调研报告 + 决策文档
 - 验证：PET_FS_TEST=1 全 PASS（真实 mdfind 搜索/类型+时间组合/limit 截断/面板 E2E/IPC 全链路）
 - 限制：面板图标为扩展名 emoji 兜底（未接 app.getFileIcon）；无 -onlyin 限定目录入口（服务层已预留）
 
+### 待办清单（✅ 已完成，subagent：数据层+服务+IPC+preload+验证）
+- 右键菜单「✅ 待办清单」→ 独立面板窗口（resources/todo-panel.html，window/todo-panel.ts）
+- 四象限（重要/紧急）：core `packages/core/src/todo.ts`（TodoItem/quadrantOf/QUADRANT_ORDER/sortTodos/todayKey/dateKeyOf，纯 TS 零依赖）
+- 排序：done 置底；未完成按 重要紧急→重要不紧急→不重要紧急→不重要不紧急，同象限按 start 升序（无 start 按 createdAt）
+- **跨天自动结转**：ensureToday() 把历史日期未完成且未结转任务复制到今天（新 id + rolloverFrom，原任务 carriedTo 幂等防重复）
+- 服务 `services/todo.service.ts`：JsonStore 原子写 `userData/todo-data.json`（`{ days: Record<'YYYY-MM-DD', TodoItem[]> }`）；list/add/setDone/remove/update/history/analyze
+- AI 简要分析：assistant 模式聚合文本；**不污染对话历史**（AIService 新增 popHistory 清理本次调用条目，另临时包装 onChunk 收集回复）
+- IPC 8 个：pet:todo:open/list/add/set-done/remove/update/history/analyze；preload 白名单 window.pet.todo*（扁平命名）
+- 验证：PET_TODO_TEST=1 全 PASS（四象限排序/完成置底/取消恢复/结转幂等/历史升序/AI 分析 mock/持久化读回）
+- 坑：smoke 用例名中文被 strip 后 userData 目录可能与其他用例撞车（如 case 9 与 case 2 同为 /tmp/dsh-smoke/AI）→ 已修复：smoke.js 默认改用 `case${序号}` 目录彻底隔离（case 7 保留显式 persist 目录）
+
+### 托盘图标（✅ 已完成：彩色 pichu 头像）
+- 原 trayTemplate.png 是 generate-icons.js 画的**黑色实心圆**（macOS Template=纯黑+alpha），菜单栏显示为黑点 → 弃用
+- 新增 `scripts/generate-tray-icon.js`：解码 `resources/icon.png`（512 彩色 pichu）→ 居中裁剪内容区（原图 pichu 偏左下，需 contentBox 校正）→ 双线性缩放 → 生成 **`resources/tray.png`（44×44=22pt@2x，Retina 菜单栏清晰）**
+- 彩色非 template：`darwin.ts`/`win32.ts` 的 trayIconPath 均指向 tray.png；index.ts 托盘 `iconAsTemplate: false`；浅/深色菜单栏与任务栏均可见（pichu 黄+黑描边）
+- 重新生成：改 icon.png 后跑 `node scripts/generate-tray-icon.js`（tray.png 为提交的静态资源）
+
 ### 右键菜单（渲染层自绘，可扩展）
-- 💬 聊天框 ｜ 🔍 文件搜索 ｜ 📋 剪贴板历史 ｜ 🙈 隐藏桌宠（CONTEXT_MENU_ITEMS 数组扩展）
+- 💬 聊天框 ｜ 📋 剪贴板历史 ｜ 🔍 文件搜索 ｜ 📅 日程管理 ｜ 🍅 番茄钟 ｜ ✅ 待办清单 ｜ 🙈 隐藏桌宠（CONTEXT_MENU_ITEMS 数组扩展）
 
 ---
 
@@ -100,7 +117,7 @@ docs/                    # 全部调研报告 + 决策文档
 10. **Key 已改明文存储**：safeStorage 在未签名开发模式重启后解密不可靠（Keychain 密钥不稳定）→ AI Key/搜索 Key 改为明文存 JSON（可靠性优先；正式签名打包后再加密）。兼容旧 enc:/b64: 数据尝试解密读取
 11. **fetch 必须带超时**（AbortController/AbortSignal.timeout），否则网络挂起卡死对话
 12. **bash 3.2 兼容**：start.sh 变量后用 `${VAR}` 花括号（全角字符会误并入变量名）；不用空数组 `"${arr[@]}"`
-13. **验证模式**（index.ts 内）：`PET_SCREENSHOT=<path>` 截图退出；`PET_DEMO=1` 模拟喂食/抚摸；`PET_AI_MOCK=1` 内置 mock OpenAI 服务器全链路自测；`PET_SEARCH_MOCK=1` mock 博查；`PET_BUBBLE_SHOT=<path>` 截气泡窗；`PET_STORE_PROBE=1` 存储探测；`PET_MD_TEST=1` Markdown 渲染测试；`PET_FS_TEST=1` 文件搜索自测（真实 mdfind，独立于截图）；`PET_DEBUG=1` 渲染层调试面板
+13. **验证模式**（index.ts 内）：`PET_SCREENSHOT=<path>` 截图退出；`PET_DEMO=1` 模拟喂食/抚摸；`PET_AI_MOCK=1` 内置 mock OpenAI 服务器全链路自测；`PET_SEARCH_MOCK=1` mock 博查；`PET_BUBBLE_SHOT=<path>` 截气泡窗；`PET_STORE_PROBE=1` 存储探测；`PET_MD_TEST=1` Markdown 渲染测试；`PET_FS_TEST=1` 文件搜索自测（真实 mdfind，独立于截图）；`PET_TODO_TEST=1` 待办清单自测（四象限/结转/历史/AI 分析 mock/持久化，独立于截图）；`PET_DEBUG=1` 渲染层调试面板
 14. **沙盒环境**：Electron 需 `--no-sandbox --user-data-dir`（start.sh 自动降级）；正常终端不需要
 15b. **WebGL toDataURL 需 preserveDrawingBuffer:true**（否则空白）；capturePage 对透明 WebGL 窗口在 resize 后可能返回不透明背景 → 图标用 canvas.toDataURL 而非 capturePage；Pixi renderer.resize 在图标模式会致背景蓝（勿在图标模式调 resize，正常窗口 resize 用 applyWindowSize 内已同步）
 15. **根 package.json 曾被子包内容覆盖**（打包 subagent 误写导致 monorepo workspaces/scripts 丢失，typecheck 全失效）——已恢复。⚠️ 任何 npm 相关操作后跑一次 `npm run typecheck` 自查；打包配置只应改 `apps/desktop/package.json` + `electron-builder.yml`，严禁覆盖根 package.json
@@ -117,9 +134,9 @@ docs/                    # 全部调研报告 + 决策文档
 ---
 
 ## 4·5、统一冒烟测试（✅）
-- `npm run smoke`（或 `node scripts/smoke.js`）：构建后依次跑 **8 项验证**，自动断言 + 汇总退出码（0 全过 / 1 有失败）：
-  ① 启动渲染（透明窗+模型锚定）② AI 全链路（桌宠/查询/天气/搜索/局域网 mock）③ 剪贴板历史 ④ 文件搜索（真实 mdfind）⑤ 日程 ⑥ 番茄钟 ⑦ 存储持久化 ⑧ Markdown 渲染
-- 其他开发者推代码前跑一次即可防回归；当前 8/8 通过
+- `npm run smoke`（或 `node scripts/smoke.js`）：构建后依次跑 **9 项验证**，自动断言 + 汇总退出码（0 全过 / 1 有失败）：
+  ① 启动渲染（透明窗+模型锚定）② AI 全链路（桌宠/查询/天气/搜索/局域网 mock）③ 剪贴板历史 ④ 文件搜索（真实 mdfind）⑤ 日程 ⑥ 番茄钟 ⑦ 存储持久化 ⑧ Markdown 渲染 ⑨ 待办清单（四象限/排序/结转/历史/AI分析）
+- 其他开发者推代码前跑一次即可防回归；当前 9/9 通过
 - 每项独立 `--user-data-dir=/tmp/dsh-smoke/*` 隔离；单模式超时 180s
 
 ## 5. 待办 / 下一步（按价值）

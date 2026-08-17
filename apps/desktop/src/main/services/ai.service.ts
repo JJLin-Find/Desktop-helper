@@ -165,6 +165,17 @@ export class AIService {
     this.persist();
   }
 
+  /**
+   * 移除最近 n 条历史（供一次性工具调用如"待办 AI 分析"完成后清理，避免污染正式对话）。
+   * n 会被钳制到 [0, history.length]；为 0 时不做任何写盘。
+   */
+  popHistory(n: number): void {
+    const count = Math.max(0, Math.min(Math.trunc(Number(n) || 0), this.config.history.length));
+    if (count === 0) return;
+    this.config.history = this.config.history.slice(0, this.config.history.length - count);
+    this.persist();
+  }
+
   /** 按模式取历史 */
   private historyFor(mode: ChatMode): { role: 'user' | 'assistant'; content: string }[] {
     return this.config.history.filter((h) => h.mode === mode);
