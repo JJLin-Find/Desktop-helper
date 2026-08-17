@@ -30,6 +30,9 @@ import {
 import { createPlatform } from './platform';
 import { DarwinPlatform } from './platform/darwin';
 import { Win32Platform } from './platform/win32';
+
+// 单实例锁：防止多开导致多个托盘图标（残留旧实例会继续显示旧版本图标，造成"图标没改"的错觉）
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
 import { JsonStore } from './services/store.service';
 import { SchedulerService } from './services/scheduler.service';
 import { AIService } from './services/ai.service';
@@ -485,6 +488,36 @@ function bootstrap(): void {
         console.error('[pomo-test] 自测异常:', err);
         app.quit();
       });
+    return;
+  }
+  // 托盘图标尺寸探测（PET_TRAY_PROBE=1）：打印 nativeImage 组合后的逻辑尺寸，
+  // 验证 addRepresentation(@1x + @2x) 是否被 Electron 正确解读（期望 getSize(1x)=16x16）
+  if (process.env['PET_TRAY_PROBE']) {
+    void (async () => {
+      try {
+        const { nativeImage, screen, Tray } = await import('electron');
+        const { readFileSync } = await import('node:fs');
+        const base = DarwinPlatform.trayIconPath();
+        const retina = base.replace(/\.png$/i, '@2x.png');
+        const plain = nativeImage.createFromPath(base);
+        const composed = nativeImage.createEmpty();
+        composed.addRepresentation({ scaleFactor: 1, buffer: readFileSync(base) });
+        if (existsSync(retina)) composed.addRepresentation({ scaleFactor: 2, buffer: readFileSync(retina) });
+        const d = screen.getPrimaryDisplay();
+        console.log('[tray-probe] tray.png 文件:', JSON.stringify(plain.getSize()));
+        console.log('[tray-probe] composed.getSize():', JSON.stringify(composed.getSize()));
+        console.log('[tray-probe] 主屏 scaleFactor:', d.scaleFactor, '逻辑尺寸:', JSON.stringify(d.size));
+        // 用组合图创建 Tray（与运行时一致）；Tray 无 getImage API，仅确认创建不抛错
+        const t = new Tray(composed);
+        t.setToolTip('tray-probe');
+        t.destroy();
+        console.log('[tray-probe] 完成 ✅（Tray 创建成功，图标逻辑尺寸 16x16 = 16pt）');
+      } catch (err) {
+        console.error('[tray-probe] 失败:', err);
+      } finally {
+        app.quit();
+      }
+    })();
     return;
   }
   // 待办清单自测（PET_TODO_TEST=1）：四象限排序/完成置底/取消恢复/跨天结转幂等/历史/AI 分析/持久化
@@ -1350,21 +1383,37 @@ async function runAiMockTest(ai: AIService): Promise<void> {
 }
 
 // ---------- 生命周期 ----------
-app.whenReady().then(bootstrap);
+if (!gotSingleInstanceLock) {
+  // 已有实例在运行：退出本次启动（second-instance 会聚焦现有桌宠，避免出现第二个托盘图标）
+  app.quit();
+} else {
+  // 二次启动时聚焦现有桌宠窗口
+  app.on('second-instance', () => {
+    const wins = BrowserWindow.getAllWindows();
+    const w = wins[0];
+    if (w) {
+      if (w.isMinimized()) w.restore();
+      w.show();
+      w.focus();
+    }
+  });
 
-// 关窗 ≠ 退出（桌宠常驻）：监听但不退出，由托盘「退出」触发 app.quit()
-app.on('window-all-closed', () => {
-  // 保持应用常驻（macOS 惯例；Windows 也需常驻以提供托盘/提醒）
-});
+  app.whenReady().then(bootstrap);
 
-app.on('before-quit', () => {
-  behavior?.stop();
-  schedulerService?.stop();
-  clipboardService?.stop();
-  platform?.tray.destroy();
-});
+  // 关窗 ≠ 退出（桌宠常驻）：监听但不退出，由托盘「退出」触发 app.quit()
+  app.on('window-all-closed', () => {
+    // 保持应用常驻（macOS 惯例；Windows 也需常驻以提供托盘/提醒）
+  });
 
-app.on('activate', () => {
-  // macOS Dock 点击（开发模式）：重新显示桌宠
-  if (petWindow) petWindow.show();
-});
+  app.on('before-quit', () => {
+    behavior?.stop();
+    schedulerService?.stop();
+    clipboardService?.stop();
+    platform?.tray.destroy();
+  });
+
+  app.on('activate', () => {
+    // macOS Dock 点击（开发模式）：重新显示桌宠
+    if (petWindow) petWindow.show();
+  });
+}

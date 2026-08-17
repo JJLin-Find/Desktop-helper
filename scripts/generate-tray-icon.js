@@ -8,10 +8,10 @@
  *
  * 本脚本从应用彩色图标 icon.png（512x512，pichu 渲染产物）解码 → 居中裁剪
  * 内容区域（icon.png 中 pichu 偏左下，contentBox 校正）→ 双线性缩放输出
- * @1x(22x22) + @2x(44x44) 双尺寸（22pt 显示 + Retina 清晰），彩色非 template。
+ * 16x16（@1x 单表示，macOS 菜单栏 16pt 标准），彩色非 template。
  *
  * 用法：
- *   node scripts/generate-tray-icon.js                       # 单图标 → resources/tray.png + tray@2x.png
+ *   node scripts/generate-tray-icon.js                       # 单图标 → resources/tray.png
  *   node scripts/generate-tray-icon.js --frames-dir=<dir>    # 动画帧：读 dir/frame-0..N.png
  *                                                           # （PET_TRAY_ANIM=<dir> 生成）→ 统一第一帧
  *                                                           # contentBox 防帧间跳动 → resources/tray-anim/
@@ -27,8 +27,9 @@ const { join } = require('node:path')
 const ROOT = join(__dirname, '..')
 const RES = join(ROOT, 'apps', 'desktop', 'resources')
 const ICON_PNG = join(RES, 'icon.png')
-const SIZE1X = 16 // macOS 菜单栏图标标准尺寸（16pt；22pt 会顶满 22pt 高的任务栏，视觉过大）
-const SIZE2X = 32 // @2x Retina 清晰
+const SIZE = 16 // macOS 菜单栏图标标准尺寸（16pt，只输出 @1x 单表示）
+// 注意：不输出 @2x —— 多分辨率 addRepresentation 组合图在 Tray 上可能被系统按 @2x 表示
+// 渲染（32px→32pt），导致图标溢出菜单栏（用户实测反馈）。单 @1x 表示尺寸确定（16pt）。
 
 // ---------- PNG 解码（RGBA） ----------
 function decodePng(buf) {
@@ -181,17 +182,15 @@ function encodePng(width, height, rgba) {
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))])
 }
 
-// ---------- 输出：裁剪 box → 缩放 @1x/@2x 双尺寸写盘 ----------
+// ---------- 输出：裁剪 box → 缩放 16x16 写盘（单 @1x 表示） ----------
 function writeTray(outPath, rgba, sw, sh, box) {
   const side = box.side
   const crop = Buffer.alloc(side * side * 4)
   for (let y = 0; y < side; y++) {
     rgba.copy(crop, y * side * 4, ((box.y0 + y) * sw + box.x0) * 4, ((box.y0 + y) * sw + box.x0 + side) * 4)
   }
-  writeFileSync(outPath, encodePng(SIZE1X, SIZE1X, resizeBilinear(crop, side, side, SIZE1X, SIZE1X)))
-  const retina = outPath.replace(/\.png$/i, '@2x.png')
-  writeFileSync(retina, encodePng(SIZE2X, SIZE2X, resizeBilinear(crop, side, side, SIZE2X, SIZE2X)))
-  return readFileSync(outPath).length + readFileSync(retina).length
+  writeFileSync(outPath, encodePng(SIZE, SIZE, resizeBilinear(crop, side, side, SIZE, SIZE)))
+  return readFileSync(outPath).length
 }
 
 // ---------- 主流程 ----------
@@ -217,14 +216,14 @@ if (framesArg) {
   console.log(`[generate-tray] 动画 ${srcs.length} 帧，统一裁剪区域 x${box.x0} y${box.y0} ${box.side}x${box.side}`)
   srcs.forEach((s, i) => {
     const bytes = writeTray(join(outDir, `frame-${i}.png`), s.img.rgba, s.img.w, s.img.h, box)
-    console.log(`[generate-tray]   frame-${i}.png + @2x（${bytes} bytes）`)
+    console.log(`[generate-tray]   frame-${i}.png（${bytes} bytes）`)
   })
   console.log(`[generate-tray] 托盘动画帧已写入 ${outDir}`)
 } else {
-  // 单图标模式：icon.png → tray.png + tray@2x.png
+  // 单图标模式：icon.png → tray.png（16x16 @1x 单表示）
   const src = decodePng(readFileSync(ICON_PNG))
   const box = contentBox(src.w, src.h, src.rgba)
   console.log(`[generate-tray] icon.png ${src.w}x${src.h}，内容居中裁剪区域 x${box.x0} y${box.y0} ${box.side}x${box.side}`)
   const bytes = writeTray(join(RES, 'tray.png'), src.rgba, src.w, src.h, box)
-  console.log(`[generate-tray] wrote tray.png(${SIZE1X}x${SIZE1X}) + tray@2x.png(${SIZE2X}x${SIZE2X})（${bytes} bytes）`)
+  console.log(`[generate-tray] wrote tray.png(${SIZE}x${SIZE} @1x)（${bytes} bytes）`)
 }

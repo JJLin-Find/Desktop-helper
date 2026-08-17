@@ -3,7 +3,7 @@
  * 差异点由 darwin/win32 子类覆盖（托盘模板图标、自启机制、通知 AUMID 等）。
  */
 import { Tray, Menu, Notification, nativeImage, app } from 'electron';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   IAutoLaunch,
@@ -42,16 +42,19 @@ export abstract class ElectronPlatform implements IPlatform {
 
   // ---------- Tray ----------
   /**
-   * 加载托盘图标：@1x 基准图 + 自动探测同目录 `@2x` 变体组合成多分辨率 NativeImage。
-   * 关键：macOS 菜单栏高 22pt，图标应用系统标准 16pt（@1x 16px + @2x 32px，
-   * 由 generate-tray-icon.js 生成）——22pt 会顶满菜单栏视觉过大，44px 单图则会被
-   * 系统当作 44pt 渲染直接溢出。addRepresentation 合并后 Retina 下显示 16pt 且清晰。
+   * 加载托盘图标：**只读 @1x 单表示**（16×16），不组合 @2x。
+   * 原因（实测踩坑）：macOS 菜单栏高 22pt，图标应 16pt；但多分辨率
+   * addRepresentation 组合图在 Tray 上可能被系统按 @2x 表示渲染（32px → 32pt
+   * 甚至 44px → 44pt），导致图标溢出菜单栏（用户反馈"明显溢出"）。
+   * 单 @1x 表示无论系统如何取用都是 16px → 16pt，尺寸确定。
+   * Retina 屏幕下 Electron 会自动放大，代价是轻微模糊，优先保证尺寸正确。
    */
   protected loadTrayImage(basePath: string): Electron.NativeImage {
-    const img = nativeImage.createEmpty();
-    img.addRepresentation({ scaleFactor: 1, buffer: readFileSync(basePath) });
-    const retina = basePath.replace(/\.png$/i, '@2x.png');
-    if (existsSync(retina)) img.addRepresentation({ scaleFactor: 2, buffer: readFileSync(retina) });
+    const img = nativeImage.createFromPath(basePath);
+    const size = img.getSize();
+    if (size.width !== 16 || size.height !== 16) {
+      console.warn(`[platform] 托盘图标非 16x16（实际 ${size.width}x${size.height}），菜单栏显示可能过大`);
+    }
     return img;
   }
 
