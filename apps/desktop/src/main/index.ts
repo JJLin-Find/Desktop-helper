@@ -377,7 +377,7 @@ function bootstrap(): void {
       : process.platform === 'win32'
         ? Win32Platform.trayIconPath()
         : undefined;
-  platform.tray.create({ icon, iconAsTemplate: false, tooltip: '桌面宠物助手' });
+  platform.tray.create({ icon, iconAsTemplate: true, tooltip: '桌面宠物助手' });
   // 托盘动态动画（呼吸）：resources/tray-anim/ 帧资源存在时启用（generate-tray-icon.js --frames-dir 生成）
   const trayAnimDir = join(app.getAppPath(), 'resources', 'tray-anim');
   if (existsSync(trayAnimDir)) platform.startTrayAnimation?.(trayAnimDir);

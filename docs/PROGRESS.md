@@ -92,15 +92,14 @@ docs/                    # 全部调研报告 + 决策文档
 - 验证：PET_TODO_TEST=1 全 PASS（四象限排序/完成置底/取消恢复/结转幂等/历史升序/AI 分析 mock/持久化读回）
 - 坑：smoke 用例名中文被 strip 后 userData 目录可能与其他用例撞车（如 case 9 与 case 2 同为 /tmp/dsh-smoke/AI）→ 已修复：smoke.js 默认改用 `case${序号}` 目录彻底隔离（case 7 保留显式 persist 目录）
 
-### 托盘图标（✅ 已完成：彩色 pichu 头像 + 呼吸动画）
-- 原 trayTemplate.png 是 generate-icons.js 画的**黑色实心圆**（macOS Template=纯黑+alpha），菜单栏显示为黑点 → 弃用
-- `scripts/generate-tray-icon.js`：解码 `resources/icon.png`（512 彩色 pichu）→ 居中裁剪内容区（原图 pichu 偏左下，contentBox 校正，side 会 clamp 到 min(w,h) 防越界）→ 双线性缩放 → **`resources/tray.png`(16×16 @1x 单表示)**
-- **尺寸红线（踩坑三次）**：macOS 菜单栏高 22pt，图标用系统标准 **16pt**。两个坑：① 单张 44px PNG 会被系统当 44pt 渲染直接溢出；② **多分辨率 `addRepresentation`(@1x+@2x) 组合图在 Tray 上可能被系统按 @2x 表示渲染**（32px→32pt 溢出菜单栏，用户实测"明显溢出"）→ 最终方案：**只提供 @1x 16×16 单表示**（createFromPath），尺寸确定；Retina 代价是轻微模糊，优先保证尺寸正确
-- **动态托盘**：渲染层 `__captureFrames(count, ms)` 图标模式连拍（Live2D 呼吸动画相位差）→ `PET_TRAY_ANIM=<dir>` 生成帧 PNG → `generate-tray-icon.js --frames-dir=<dir>` 统一第一帧 contentBox 缩放 → `resources/tray-anim/frame-0..3.png`（16×16，帧间有差异，呼吸可见）
-- **单实例锁**：`app.requestSingleInstanceLock()`（残留旧实例会继续显示旧版本图标，造成"图标没改"的假象；二次启动聚焦现有桌宠）
-- 运行时：`base.ts startTrayAnimation(framesDir)` setInterval 300ms 循环 `setImage`（IPlatform 可选方法）；index.ts 托盘创建后探测 tray-anim/ 存在即启动
-- 彩色非 template：`darwin.ts`/`win32.ts` trayIconPath 指向 tray.png；`iconAsTemplate: false`；浅/深色菜单栏均可见
-- 重新生成：改 icon.png 后跑 `node scripts/generate-tray-icon.js`；动画帧先 `PET_TRAY_ANIM=/tmp/f 跑 electron` 再 `--frames-dir=/tmp/f`
+### 托盘图标（✅ 已完成：黑色闪电模板图 + 呼吸动画）
+- 用户最终定案：**不用 pichu 形象** → 简约黑色闪电（⚡，呼应用户心仪形象元素 + AI 灵动感），**纯黑 + alpha 模板图**（`setTemplateImage(true)`，系统按 alpha 着色自动适配浅/深色菜单栏，无其他颜色）
+- `scripts/generate-tray-icon.js`：手写闪电多边形光栅化（3×3 超采样抗锯齿，零依赖）→ `tray.png`(16×16)；`--anim` 生成 `tray-anim/frame-0..3.png`（alpha 1.0/0.78 脉动呼吸）
+- **尺寸红线（踩坑三次，勿重蹈）**：macOS 菜单栏高 22pt，图标用系统标准 **16pt**。三个坑：① 单张 44px PNG 被系统当 44pt 渲染直接溢出；② 多分辨率 `addRepresentation` 组合图在 Tray 上可能被按 @2x 表示渲染（32px→32pt 溢出，用户实测"明显溢出"）；③ 残留旧实例继续显示旧图标（"没改"假象）→ **单 @1x 16×16 表示**（createFromPath）+ **单实例锁**（requestSingleInstanceLock）
+- **动态托盘**：模板图 alpha 脉动呼吸（明暗变化），`base.ts startTrayAnimation` setInterval 300ms 循环 `setImage`（帧同为模板图）
+- `darwin.ts`/`win32.ts` trayIconPath 指向 tray.png；`iconAsTemplate: true`
+- 重新生成：`node scripts/generate-tray-icon.js`（单图标）/ `node scripts/generate-tray-icon.js --anim`（动画帧）
+- 诊断：`PET_TRAY_PROBE=1` 打印托盘图标逻辑尺寸与屏幕 scaleFactor
 
 ### 右键菜单（渲染层自绘，可扩展）
 - 💬 聊天框 ｜ 📋 剪贴板历史 ｜ 🔍 文件搜索 ｜ 📅 日程管理 ｜ 🍅 番茄钟 ｜ ✅ 待办清单 ｜ 🙈 隐藏桌宠（CONTEXT_MENU_ITEMS 数组扩展）

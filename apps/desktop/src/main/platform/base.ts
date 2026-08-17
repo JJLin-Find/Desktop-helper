@@ -47,10 +47,12 @@ export abstract class ElectronPlatform implements IPlatform {
    * addRepresentation 组合图在 Tray 上可能被系统按 @2x 表示渲染（32px → 32pt
    * 甚至 44px → 44pt），导致图标溢出菜单栏（用户反馈"明显溢出"）。
    * 单 @1x 表示无论系统如何取用都是 16px → 16pt，尺寸确定。
-   * Retina 屏幕下 Electron 会自动放大，代价是轻微模糊，优先保证尺寸正确。
+   * 当前图标为黑色闪电模板图（generate-tray-icon.js 生成），asTemplate=true 时
+   * 标记为模板（系统按 alpha 着色自动适配浅/深色菜单栏）。
    */
-  protected loadTrayImage(basePath: string): Electron.NativeImage {
+  protected loadTrayImage(basePath: string, asTemplate = false): Electron.NativeImage {
     const img = nativeImage.createFromPath(basePath);
+    if (asTemplate) img.setTemplateImage(true);
     const size = img.getSize();
     if (size.width !== 16 || size.height !== 16) {
       console.warn(`[platform] 托盘图标非 16x16（实际 ${size.width}x${size.height}），菜单栏显示可能过大`);
@@ -62,9 +64,8 @@ export abstract class ElectronPlatform implements IPlatform {
     return {
       create: (options: TrayOptions) => {
         const icon = options.icon
-          ? this.loadTrayImage(options.icon)
+          ? this.loadTrayImage(options.icon, options.iconAsTemplate)
           : nativeImage.createEmpty();
-        if (options.iconAsTemplate) icon.setTemplateImage(true);
         this.trayImpl = new Tray(icon);
         this.trayImpl.setToolTip(options.tooltip ?? '桌面宠物助手');
       },
@@ -170,7 +171,7 @@ export abstract class ElectronPlatform implements IPlatform {
     for (let i = 0; ; i++) {
       const p = join(framesDir, `frame-${i}.png`);
       if (!existsSync(p)) break;
-      frames.push(this.loadTrayImage(p));
+      frames.push(this.loadTrayImage(p, true)); // 动画帧同为模板图
     }
     if (frames.length < 2) return;
     let idx = 0;
